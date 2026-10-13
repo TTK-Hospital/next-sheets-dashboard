@@ -214,6 +214,17 @@ function printLineHeight(raw: string): number {
   return Number.isFinite(n) && n >= 0.7 && n <= 2.5 ? n : 0.9;
 }
 
+/** Parses ReportSettings.printSignatureGapPx into a safe px number for the
+ * blank space above the printed signature-block grid and the row gap
+ * between a row of ผู้ตรวจสอบ blocks and the ผู้รับทราบ block below it —
+ * same "reject a bad stored value, don't break the page" role as the
+ * helpers above, and the same 0–48 range the API route validates on save.
+ * Falls back to "16", the field's own default. */
+function printSignatureGapPx(raw: string): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 48 ? n : 16;
+}
+
 /** Fixed print font stack — used to be user-configurable
  * (ReportSettings.printFontFamily), but the hospital never needed
  * anything besides this, so it's now just a constant instead of a
@@ -1216,6 +1227,12 @@ export default function MaintenanceReportBuilder({
   // ReportSettings.printLineHeight's own comment for exactly what that
   // covers.
   const lineHeightRatio = printLineHeight(formSettings.printLineHeight);
+  // Drives the blank space above the signature-block grid and the row gap
+  // between a row of ผู้ตรวจสอบ blocks and the ผู้รับทราบ block below it —
+  // see ReportSettings.printSignatureGapPx's own comment for exactly which
+  // two gaps this covers (and which ones it deliberately doesn't, like the
+  // reserved pen-signature space above each heading).
+  const signatureGapPx = printSignatureGapPx(formSettings.printSignatureGapPx);
   // Drives the equipment table's base font size (see
   // ReportSettings.printTableFontSizePx) — the two smaller in-table sizes
   // below are derived from it, offset by fixed px amounts, so the table's
@@ -1308,7 +1325,7 @@ export default function MaintenanceReportBuilder({
       translate="no"
       className="notranslate flex w-full flex-1 justify-center px-4 py-8 print:block print:bg-white print:px-0 print:py-0 sm:px-6 lg:px-10"
     >
-      <div className="flex w-full max-w-[75rem] flex-col gap-6 print:max-w-none print:gap-0">
+      <div className="flex w-full max-w-[75rem] flex-col gap-6 print:block print:max-w-none print:gap-0">
         {/* Selection controls — never printed (see the @media print rule
             below, which also hides anything with the .no-print class as a
             belt-and-suspenders backstop for browsers that ignore print:). */}
@@ -1518,6 +1535,20 @@ export default function MaintenanceReportBuilder({
                           value={formSettings.printLineHeight}
                           onChange={(e) => {
                             setFormSettings((prev) => ({ ...prev, printLineHeight: e.target.value }));
+                            setSettingsSaved(false);
+                          }}
+                          className={INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm text-zinc-500 dark:text-zinc-400">
+                        ระยะห่างช่องว่างส่วนลงชื่อ (px)
+                        <input
+                          type="number"
+                          min={0}
+                          max={48}
+                          value={formSettings.printSignatureGapPx}
+                          onChange={(e) => {
+                            setFormSettings((prev) => ({ ...prev, printSignatureGapPx: e.target.value }));
                             setSettingsSaved(false);
                           }}
                           className={INPUT_CLASS}
@@ -2576,8 +2607,22 @@ export default function MaintenanceReportBuilder({
               block ends up alone) spans both columns instead of sitting
               lopsided in a half-filled row. */}
           <div
-            className="mt-6 grid grid-cols-1 gap-x-8 gap-y-8 text-center sm:grid-cols-2"
-            style={{ fontSize: `${bodyFontSizePt}pt` }}
+            className="grid grid-cols-1 gap-x-8 text-center sm:grid-cols-2"
+            style={{
+              fontSize: `${bodyFontSizePt}pt`,
+              // marginTop + rowGap replace this grid's old fixed mt-6/
+              // gap-y-8 (24px/32px) — both now driven by the one
+              // ReportSettings.printSignatureGapPx control (see
+              // signatureGapPx above) instead of being hard-coded, so a
+              // hospital can tighten the two blank areas it reported as
+              // wasteful (and reclaim margin a signature section
+              // occasionally needed to spill onto a second printed page
+              // for) without a code change. gap-x-8 (the column gap
+              // between left/right blocks) deliberately stays fixed —
+              // only the vertical blank space was reported as excessive.
+              marginTop: `${signatureGapPx}px`,
+              rowGap: `${signatureGapPx}px`,
+            }}
           >
             {signatureBlocks.map((block, idx) => (
               <div

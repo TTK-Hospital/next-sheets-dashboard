@@ -663,6 +663,25 @@ export interface ReportSettings {
    * printLineHeight) so a blank or hand-edited non-numeric cell never
    * breaks the page. */
   printLineHeight: string;
+  /** Vertical gap (in px) around and inside the printed signature-block
+   * area: the space above the ลงชื่อ.../ผู้ตรวจสอบ/ผู้รับทราบ grid (between
+   * it and the วันที่ดำเนินการ line above) and the row gap between a row of
+   * ผู้ตรวจสอบ blocks and the ผู้รับทราบ block below it — the two blank
+   * areas a hospital reported as wasteful once an IT department with many
+   * ผู้ตรวจสอบ departments pushed ผู้รับทราบ onto its own grid row, which
+   * then occasionally needed a second printed page the signature area
+   * never flowed onto cleanly. Deliberately separate from printLineHeight
+   * above (which governs line spacing WITHIN each block's own text, not
+   * the blank space BETWEEN blocks/rows) so tightening one doesn't fight
+   * the reserved pen-signature space each block keeps above its own
+   * heading. Defaults to "16", tighter than this form's original
+   * hard-coded 24px/32px gaps, so a hospital that never touches the
+   * settings screen still gets the more compact layout requested. Stored
+   * as a string, same plain-text handling as every other field here —
+   * parsed with a fallback at render time (see
+   * MaintenanceReportBuilder's printSignatureGapPx) so a blank or
+   * hand-edited non-numeric cell never breaks the page. */
+  printSignatureGapPx: string;
   /** Checklist items shown under the "การดำเนินการ" column of a printed
    * maintenance report — editable by the hospital instead of hard-coded,
    * since this list is expected to grow (today just "บำรุงรักษา", later
@@ -747,6 +766,7 @@ export const DEFAULT_REPORT_SETTINGS: ReportSettings = {
   printHeaderFontSizePt: "16",
   printTableFontSizePx: "11",
   printLineHeight: "0.9",
+  printSignatureGapPx: "16",
   actionOptions: ["บำรุงรักษา"],
   hiddenActionOptions: [],
   detailRequiredActionOptions: [],

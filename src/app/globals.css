@@ -150,12 +150,24 @@ body {
 
 /* AppShell (src/components/AppShell.tsx) print safety — belt-and-suspenders
    alongside its own `print:hidden` Tailwind classes. The shell locks the
-   sidebar + main content to the viewport height (`h-screen overflow-hidden`
-   on the shell, `overflow-y-auto` on the scrolling main pane) so the app
-   reads like a normal dashboard shell on screen — but that same fixed
-   height silently truncates a multi-page print job (MaintenanceReportBuilder,
-   at /manage/it/report, is the one page in this app that prints) to
-   whatever fit in the on-screen scroll viewport. This rule unconditionally
+   sidebar + main content to the viewport height across THREE nested
+   elements — `.app-shell-page-bg` (`flex h-screen overflow-hidden`, the
+   shell's own root), `.app-shell-content` (the column wrapper directly
+   inside it, also `overflow-hidden`), and `.app-shell-scroll` (the
+   innermost `overflow-y-auto` scrolling pane that actually renders
+   `children`) — so the app reads like a normal dashboard shell on screen.
+   But that same fixed-height chain silently truncates a multi-page print
+   job (MaintenanceReportBuilder, at /manage/it/report, is the one page in
+   this app that prints) to whatever fit in the on-screen scroll viewport:
+   content past that one screenful doesn't get pushed onto a printed page
+   2, it's simply clipped away and never appears at all — this is what was
+   cutting off the ลงชื่อ...ผู้รับทราบ signature block on longer reports.
+   An earlier version of this rule only cleared `.app-shell-scroll`, which
+   fixed nothing on its own since the two ANCESTOR elements were still
+   clipping before the browser ever got to that inner pane — confirmed by
+   reproducing the exact clipping bug with only that one selector reset,
+   and confirmed fixed once all three are reset together (see the print-bug
+   investigation this comment was added for). This rule unconditionally
    restores normal, unclipped document flow for print regardless of which
    page is mounted, so the shell can never reintroduce that clipping bug
    even if a future page adds its own print view without knowing about it. */
@@ -163,6 +175,15 @@ body {
   .app-shell-sidebar,
   .app-shell-topbar {
     display: none !important;
+  }
+  .app-shell-page-bg {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .app-shell-content {
+    display: block !important;
+    overflow: visible !important;
   }
   .app-shell-scroll {
     height: auto !important;

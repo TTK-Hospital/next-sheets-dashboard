@@ -260,7 +260,7 @@ export default function AppShell({
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="app-shell-content flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Slim mobile-only topbar — the desktop sidebar already carries
             the brand mark + nav, so this only needs to exist below the lg
             breakpoint to expose the drawer toggle. */}

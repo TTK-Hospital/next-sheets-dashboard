@@ -70,6 +70,7 @@ function readSettingsPayload(body: unknown): Partial<ReportSettings> | null {
     "printHeaderFontSizePt",
     "printTableFontSizePx",
     "printLineHeight",
+    "printSignatureGapPx",
   ];
   const out: Partial<ReportSettings> = {};
   for (const key of stringKeys) {
@@ -100,6 +101,12 @@ function readSettingsPayload(body: unknown): Partial<ReportSettings> | null {
     // Same 0.7–2.5 range MaintenanceReportBuilder's printLineHeight helper
     // clamps to at render time — kept in sync deliberately.
     if (!Number.isFinite(n) || n < 0.7 || n > 2.5) return null;
+  }
+  if (out.printSignatureGapPx !== undefined) {
+    const n = Number(out.printSignatureGapPx);
+    // Same 0–48px range MaintenanceReportBuilder's printSignatureGapPx
+    // helper clamps to at render time — kept in sync deliberately.
+    if (!Number.isFinite(n) || n < 0 || n > 48) return null;
   }
   if (b.actionOptions !== undefined) {
     if (!Array.isArray(b.actionOptions) || !b.actionOptions.every((x) => typeof x === "string")) return null;
