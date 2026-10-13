@@ -481,7 +481,15 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
           layout and the mobile topbar without duplicating it in each. On
           mobile it sits just below the 56px topbar; on desktop (no topbar)
           it sits near the very top of the viewport instead. */}
-      <div className="fixed right-3 top-[68px] z-50 lg:right-4 lg:top-4">
+      {/* print:hidden (+ no-print as a belt-and-suspenders backstop, same
+          convention as MaintenanceReportBuilder's own print-only controls)
+          — this button is `position: fixed`, so without an explicit print
+          override it stays pinned on top of the page at print time too,
+          landing right over the printed form's content (reported as the
+          bell icon overlapping the equipment table on a printed
+          maintenance report). Fixed-position elements aren't naturally
+          excluded from print the way scrolled-past content is. */}
+      <div className="no-print fixed right-3 top-[68px] z-50 print:hidden lg:right-4 lg:top-4">
         <button
           type="button"
           onClick={() => (open ? setOpen(false) : openPanel())}
