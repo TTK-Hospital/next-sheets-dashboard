@@ -396,6 +396,54 @@ function bookingDateTimeToMillis(raw: string): number {
   return new Date(y, mo - 1, d, h, mi).getTime();
 }
 
+/** "Now", expressed in the exact same naive-local-numbers convention as
+ * bookingDateTimeToMillis above (wall-clock digits run through `new
+ * Date(y, mo-1, d, h, mi)`, which stamps them using whatever timezone the
+ * JS engine itself runs in). startTime/endTime are stored as *Bangkok*
+ * wall-clock digits with no timezone conversion (see the Booking.startTime
+ * doc comment), so comparing bookingDateTimeToMillis(booking.startTime)
+ * against a plain Date.now() would be silently wrong by the server's UTC
+ * offset whenever the server isn't itself running in Asia/Bangkok (Vercel
+ * runs in UTC). Converting "now" to Bangkok wall-clock digits first (via
+ * toLocaleString with timeZone: "Asia/Bangkok", same technique as
+ * bangkokDateKey in lib/sheets.ts) and then feeding those digits through
+ * the identical new Date(y, mo-1, d, h, mi) conversion cancels that offset
+ * out on both sides, so the subtraction below is correct regardless of
+ * which timezone the server process happens to run in. */
+function nowAsBookingMillis(): number {
+  // en-CA + these options -> "YYYY-MM-DD, HH:MM" (24h clock, comma
+  // separator) — locale chosen only for that predictable digit order, not
+  // for anything Canada-specific.
+  const formatted = new Date().toLocaleString("en-CA", {
+    timeZone: "Asia/Bangkok",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const m = formatted.match(/^(\d{4})-(\d{2})-(\d{2}),?\s*(\d{2}):(\d{2})/);
+  if (!m) return Date.now(); // should never happen; falls back to a safe default
+  const [, y, mo, d, h, mi] = m.map(Number) as unknown as number[];
+  return new Date(y, mo - 1, d, h, mi).getTime();
+}
+
+/** Whether a booking's own start date/time has already arrived (or
+ * passed), as of "now" in Bangkok time. Once this is true the booking
+ * describes a trip/meeting that has already begun (or is already over),
+ * so it can no longer meaningfully be cancelled — see canCancelBooking
+ * below, which folds this in unconditionally (not even a superadmin may
+ * cancel a booking whose time has already arrived). Returns false — i.e.
+ * "hasn't started, cancellation still allowed on this basis" — if
+ * startTime can't be parsed, so a malformed value never silently blocks a
+ * cancellation that should otherwise be allowed. */
+export function hasBookingStarted(booking: Pick<Booking, "startTime">): boolean {
+  const startMillis = bookingDateTimeToMillis(booking.startTime);
+  if (Number.isNaN(startMillis)) return false;
+  return nowAsBookingMillis() >= startMillis;
+}
+
 /** "2026-08-25T14:30" -> "25/08/2026 14:30" — display formatting shared by
  * the flat list (BookingDashboard) and the calendar view
  * (BookingCalendar), both of which show the exact same underlying data in
@@ -468,11 +516,23 @@ export function hasBookingConflict(
  * department's booking outright. Backed by hasPermission()'s
  * "cancelAnyBooking" key for the "someone else's booking" half — same
  * unchanged default (any superadmin), now also grantable per account; a
- * booking's own owner can always cancel it regardless, exactly as before. */
+ * booking's own owner can always cancel it regardless, exactly as before.
+ *
+ * On top of that ownership check, a booking whose own start date/time has
+ * already arrived can never be cancelled by anyone — per explicit request,
+ * this is absolute and does not defer to "cancelAnyBooking"/superadmin the
+ * way the ownership half does: a trip or meeting that has already started
+ * (or already happened) is done, not something to retroactively "not have
+ * booked". Checked here (hasBookingStarted) rather than left to each call
+ * site so the three places that gate the cancel action — the flat list in
+ * BookingDashboard, the calendar day view in BookingCalendar, and the
+ * DELETE route in api/booking/bookings/[bookingId] — can never drift out
+ * of sync with each other. */
 export function canCancelBooking(
-  booking: Pick<Booking, "bookedByUsername">,
+  booking: Pick<Booking, "bookedByUsername" | "startTime">,
   session: { username: string } & PermissionSession
 ): boolean {
+  if (hasBookingStarted(booking)) return false;
   return booking.bookedByUsername === session.username || hasPermission(session, "cancelAnyBooking");
 }
 
