@@ -907,6 +907,23 @@ export default function BookingDashboard({
                               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASSES[status.tone]}`}>
                                 {status.text}
                               </span>
+                              {/* เหตุผลที่ ผอ. ไม่อนุมัติ ให้ผู้จอง/ผู้จัดรถเห็นว่าทำไมถึงไม่ให้
+                                  (ตามที่ขอ "ให้ผู้จองได้รับทราบเหตุผล") — เงื่อนไขเดียวกับ
+                                  directorStatusLabel(booking)?.tone === "rejected" แต่ไม่
+                                  เรียกฟังก์ชันนั้นตรงๆ เพราะต้องใช้ directorNote ด้วย */}
+                              {booking.directorApprovalStatus === "rejected" && booking.directorNote && (
+                                <p className="mt-1 max-w-[16rem] text-xs text-red-600 dark:text-red-400">
+                                  ผอ. ไม่อนุมัติ: {booking.directorNote}
+                                </p>
+                              )}
+                              {/* ผอ. "ตีกลับ" ใบสั่งงานเดิม — ยังเป็น "รอจัดรถ" อยู่ แค่มีข้อความ
+                                  ฝากไว้ให้ผู้จัดรถเห็นก่อนจัดรถใหม่ (ดู
+                                  Booking.directorReturnedAt ใน lib/booking.ts) */}
+                              {booking.directorReturnedAt && booking.approvalStatus === "pending" && (
+                                <p className="mt-1 max-w-[16rem] text-xs text-amber-700 dark:text-amber-400">
+                                  ผอ. ตีกลับ{booking.directorNote ? `: ${booking.directorNote}` : " — กรุณาจัดรถใหม่"}
+                                </p>
+                              )}
                             </td>
                             <td className="px-2 py-2.5 text-right">
                               <div className="flex flex-wrap items-center justify-end gap-1.5">

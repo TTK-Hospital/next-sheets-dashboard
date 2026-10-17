@@ -6,7 +6,7 @@ import { getDirectorPendingTrips } from "@/lib/sheets";
 // หน้านี้ เหมือน /api/public/driver-trips และ /api/booking/* ทั้งหมด
 export const dynamic = "force-dynamic";
 
-/** รายการจองรถที่รอ ผอ. รับทราบ — ดู DirectorTripItem/getDirectorPendingTrips
+/** รายการจองรถที่รอ ผอ. อนุมัติ — ดู DirectorTripItem/getDirectorPendingTrips
  * ใน lib/sheets.ts สำหรับเนื้อหาเต็ม (คัดเฉพาะฟิลด์ที่ ผอ. ต้องเห็นจริงๆ ตามที่
  * ขอ "ไม่มีรายละเอียดเยอะเกินความจำเป็น"). ต้องผ่าน session หน้า /director
  * เอง — ดูคอมเมนต์หัวไฟล์ lib/directorAuth.ts ว่าทำไมแยกจาก manage_session/

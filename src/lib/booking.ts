@@ -117,19 +117,26 @@ export function isOverSeatCapacity(
  * rule in force when it was made. */
 export type BookingApprovalStatus = "pending" | "approved" | "rejected";
 
-/** การรับทราบ/อนุมัติการเดินทางโดยผู้อำนวยการ (ผอ.) — เพิ่มเข้ามาทีหลัง
+/** การอนุมัติการเดินทางโดยผู้อำนวยการ (ผอ.) — เพิ่มเข้ามาทีหลัง
  * approvalStatus/TripOrder เดิมทั้งหมด (ดูคอมเมนต์ยาวที่ Booking.
- * directorApprovalStatus ด้านล่าง) เป็นเลเยอร์ "รับทราบ" แยกต่างหาก ไม่ใช่
+ * directorApprovalStatus ด้านล่าง) เป็นเลเยอร์ "อนุมัติ" แยกต่างหาก ไม่ใช่
  * ขั้นอนุมัติที่บังคับก่อนจัดรถ — ตามที่โรงพยาบาลเลือกไว้ชัดเจน (ผอ. จะเห็น
- * รายการเดินทางหลังจากที่ผู้ดูแลระบบจัดรถ/คนขับเรียบร้อยแล้วเท่านั้น)
+ * รายการเดินทางหลังจากที่ผู้ดูแลระบบจัดรถ/คนขับเรียบร้อยแล้วเท่านั้น) — "อนุมัติ"
+ * เป็นคำที่สงวนไว้ให้ ผอ. คนเดียวในระบบนี้ (ดูคอมเมนต์ที่ bookingStatusLabel
+ * ด้านล่างว่าทำไมระดับผู้จัดรถห้ามใช้คำนี้) ปุ่ม/สถานะในหน้า /director จึงใช้คำว่า
+ * "อนุมัติ"/"ไม่อนุมัติ" ตรงๆ (เดิมใช้ "รับทราบ"/"ไม่รับทราบ" — เปลี่ยนตามที่ ผอ.
+ * ขอให้ตรงกับบทบาทจริงของท่าน) — ชื่อ type/field ยังคงคำว่า "approved" ไว้
+ * เหมือนเดิมเพื่อไม่ต้องย้ายข้อมูลเก่า มีผลกับ label ที่แสดงผลเท่านั้น.
  *
- * "" — ยังไม่ถึงขั้นที่ ผอ. ต้องรับทราบ (ยัง "รออนุมัติ"/ยังไม่ถูกจัดรถ, เป็นการ
+ * "" — ยังไม่ถึงขั้นที่ ผอ. ต้องอนุมัติ (ยัง "รอจัดรถ"/ยังไม่ถูกจัดรถ, เป็นการ
  * จองห้องประชุม, หรือเป็นการจองรถที่ถูกปฏิเสธไปแล้ว) — ไม่ขึ้นในหน้า ผอ. เลย.
- * "pending" — จัดรถ/คนขับแล้ว กำลังรอ ผอ. รับทราบ — ตั้งค่านี้ตอนออก/ขยาย
+ * "pending" — จัดรถ/คนขับแล้ว กำลังรอ ผอ. อนุมัติ — ตั้งค่านี้ตอนออก/ขยาย
  * TripOrder (createTripOrder/updateTripOrder ใน lib/sheets.ts).
- * "approved" / "rejected" — ผอ. กดรับทราบ/ไม่รับทราบแล้ว ผ่านหน้า /director
+ * "approved" / "rejected" — ผอ. กดอนุมัติ/ไม่อนุมัติแล้ว ผ่านหน้า /director
  * (ดู setDirectorDecision ใน lib/sheets.ts) — ไม่ย้อนกลับไปกระทบ
- * approvalStatus/TripOrder เดิมเลย เป็นแค่ชั้นมองเห็นเพิ่มเติมสำหรับ ผอ. */
+ * approvalStatus/TripOrder เดิมเลย เป็นแค่ชั้นมองเห็นเพิ่มเติมสำหรับ ผอ. ("ไม่
+ * อนุมัติ" ต่างจากการกด "ตีกลับ" — ไม่อนุมัติคือปฏิเสธคำขอนี้ไปเลย ส่วนตีกลับคือ
+ * ส่งคืนให้ฝ่ายบริหารจัดรถใหม่ ดู Booking.directorReturnedAt ด้านล่าง). */
 export type DirectorApprovalStatus = "" | "pending" | "approved" | "rejected";
 
 /** One booking against one resource, for one time range. Live vs cancelled
@@ -264,6 +271,27 @@ export interface Booking {
   /** Blank until the director approves/rejects; set to that decision's
    * ISO timestamp — same shape as approvedAt above. */
   directorApprovedAt: string;
+  /** ข้อความจาก ผอ. — ใช้สองกรณี ขึ้นกับสถานะตอนที่อ่าน: (1) เหตุผลที่ "ไม่
+   * อนุมัติ" ให้ผู้จองทราบ (directorApprovalStatus === "rejected"), หรือ (2)
+   * ข้อความ "ตีกลับ" ถึงฝ่ายบริหารผู้จัดรถตอนที่ ผอ. ส่งคำขอนี้กลับไปให้จัดรถ
+   * ใหม่ (directorReturnedAt ไม่ว่าง, approvalStatus กลับเป็น "pending" แล้ว
+   * — ดู returnTripToDispatch ใน lib/sheets.ts) ตามที่โรงพยาบาลขอเพิ่ม "ช่อง
+   * คอมเม้นด้วยว่าท่านมีอะไรจะบอกกับผู้จัดรถ" และ "ช่องที่ผอ.ชี้แจงเหตุผล...
+   * ให้ผู้จองได้รับทราบเหตุผล". เขียนทับค่าเดิมทุกครั้งที่มีการกดปุ่มใดปุ่มหนึ่ง
+   * ใหม่ (ไม่สะสมประวัติ) — ประวัติแบบเต็มยังอยู่ใน EditLog อยู่แล้ว. */
+  directorNote: string;
+  /** Blank unless the director sent this *back* to dispatch for
+   * re-arrangement ("ตีกลับ") instead of approving/rejecting it outright —
+   * see returnTripToDispatch in lib/sheets.ts. When set, approvalStatus has
+   * already been reverted to "pending" and tripOrderId cleared (the old
+   * car/driver assignment is dissolved, exactly like splitBookingFromTripOrder
+   * does for a manual split — "ตีกลับ" is conceptually the director doing
+   * that same split, for every booking the TripOrder covered, plus a note).
+   * Cleared again (back to "") the moment dispatch issues a *new* TripOrder
+   * covering this booking — see createTripOrder — so the "ส่งกลับโดย ผอ."
+   * banner in BookingDashboard never lingers past the re-dispatch it was
+   * about. */
+  directorReturnedAt: string;
 }
 
 /**
@@ -390,14 +418,32 @@ export function bookingStatusLabel(
  * (never a replacement for) the existing approvalStatus/TripOrder flow. "" →
  * no label at all (not dispatched yet, a room booking, or an already-
  * rejected car booking) — every call site should skip rendering anything
- * for that case rather than show a blank chip. */
+ * for that case rather than show a blank chip.
+ *
+ * Wording uses "อนุมัติ"/"ไม่อนุมัติ" — unlike bookingStatusLabel above,
+ * which deliberately avoids that word at the dispatcher level, this *is*
+ * the director's own decision, the one place in the app "อนุมัติ" is
+ * correct (per the hospital's explicit request — see DirectorApprovalStatus's
+ * doc comment above for the rename from the earlier "รับทราบ" wording). */
 export function directorStatusLabel(
   booking: Pick<Booking, "directorApprovalStatus">
 ): { text: string; tone: "pending" | "approved" | "rejected" } | null {
-  if (booking.directorApprovalStatus === "pending") return { text: "ผอ. รอรับทราบ", tone: "pending" };
-  if (booking.directorApprovalStatus === "approved") return { text: "ผอ. รับทราบแล้ว", tone: "approved" };
-  if (booking.directorApprovalStatus === "rejected") return { text: "ผอ. ไม่รับทราบ", tone: "rejected" };
+  if (booking.directorApprovalStatus === "pending") return { text: "ผอ. รออนุมัติ", tone: "pending" };
+  if (booking.directorApprovalStatus === "approved") return { text: "ผอ. อนุมัติแล้ว", tone: "approved" };
+  if (booking.directorApprovalStatus === "rejected") return { text: "ผอ. ไม่อนุมัติ", tone: "rejected" };
   return null;
+}
+
+/** True once the director has sent this booking *back* to dispatch for
+ * re-arrangement ("ตีกลับ") rather than approving/rejecting it — see
+ * Booking.directorReturnedAt's doc comment for the full story. A returned
+ * booking is, by the time this is true, already back to a plain pending
+ * car booking (approvalStatus "pending", no tripOrderId) — this is purely
+ * a "show the director's note" flag for the dispatcher, not a status in
+ * its own right, so it's kept separate from bookingStatusLabel/
+ * directorStatusLabel above rather than folded into either. */
+export function isDirectorReturned(booking: Pick<Booking, "directorReturnedAt">): boolean {
+  return booking.directorReturnedAt.trim() !== "";
 }
 
 /** Splits a startTime/endTime string ("2026-08-25T14:30", the raw

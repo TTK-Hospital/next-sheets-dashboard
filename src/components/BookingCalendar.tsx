@@ -880,6 +880,19 @@ function DayDetailModal({
                             แก้ไขโดยฝ่ายบริหาร ({b.editedByUsername})
                           </span>
                         )}
+                        {/* เหตุผลที่ ผอ. ไม่อนุมัติ ให้ผู้จอง/ผู้จัดรถเห็น (ตามที่ขอ
+                            "ให้ผู้จองได้รับทราบเหตุผล") — ดู
+                            Booking.directorNote ใน lib/booking.ts */}
+                        {b.directorApprovalStatus === "rejected" && b.directorNote && (
+                          <p className="text-xs text-red-600 dark:text-red-400">ผอ. ไม่อนุมัติ: {b.directorNote}</p>
+                        )}
+                        {/* ผอ. "ตีกลับ" ใบสั่งงานเดิม — ยัง "รอจัดรถ" อยู่ แค่มี
+                            ข้อความฝากไว้ให้ผู้จัดรถเห็นก่อนจัดรถใหม่ */}
+                        {b.directorReturnedAt && b.approvalStatus === "pending" && (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            ผอ. ตีกลับ{b.directorNote ? `: ${b.directorNote}` : " — กรุณาจัดรถใหม่"}
+                          </p>
+                        )}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {!cancelled && canApprove && b.approvalStatus === "pending" && (
                             <>

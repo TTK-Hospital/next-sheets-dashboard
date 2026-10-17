@@ -353,14 +353,23 @@ export type EditLogAction =
   // original request is never edited".
   | "แก้ไขข้อมูลการจองโดยฝ่ายบริหาร"
   // หน้า /director (ดู src/app/director/page.tsx) — ผอ. ล็อกอิน/รีเซ็ตรหัสผ่าน
-  // /รับทราบการเดินทางด้วยตัวเอง ใช้ actor "ผอ." เสมอ (มีผู้ใช้คนเดียว ไม่มี
+  // /อนุมัติการเดินทางด้วยตัวเอง ใช้ actor "ผอ." เสมอ (มีผู้ใช้คนเดียว ไม่มี
   // username ให้บอกต่างจากนี้ — ดูคอมเมนต์หัวไฟล์ lib/directorAuth.ts).
   | "ผอ. เข้าสู่ระบบสำเร็จ"
   | "ผอ. เข้าสู่ระบบล้มเหลว"
   | "ผอ. รีเซ็ตรหัสผ่านสำเร็จ"
   | "ผอ. รีเซ็ตรหัสผ่านล้มเหลว"
+  // "ผอ. รับทราบการเดินทาง"/"ผอ. ไม่รับทราบการเดินทาง" retired จาก write
+  // path — เปลี่ยนถ้อยคำปุ่ม/สถานะหน้า /director จาก "รับทราบ"/"ไม่รับทราบ"
+  // เป็น "อนุมัติ"/"ไม่อนุมัติ" ตามที่ ผอ. ขอให้ตรงกับบทบาทจริง (ดู
+  // DirectorApprovalStatus's doc comment ใน lib/booking.ts) — คงไว้ในยูเนียน
+  // เฉพาะให้แถว EditLog เก่าที่เคยเขียนด้วยคำนี้ยัง type-check ผ่าน ไม่มีการ
+  // เขียนด้วยคำเดิมอีกแล้วตั้งแต่นี้ไป
   | "ผอ. รับทราบการเดินทาง"
-  | "ผอ. ไม่รับทราบการเดินทาง";
+  | "ผอ. ไม่รับทราบการเดินทาง"
+  | "ผอ. อนุมัติการเดินทาง"
+  | "ผอ. ไม่อนุมัติการเดินทาง"
+  | "ผอ. ตีกลับใบสั่งงานเดินทาง";
 
 /** Appends one row to the EditLog tab — header row (created ahead of time
  * by the sheet owner, not by this app; see the project setup notes) must be:
@@ -1671,6 +1680,12 @@ const BOOKINGS_HEADER_ROW = [
   // dispatched / not applicable), see parseDirectorApprovalStatus and the
   // DirectorApprovalStatus doc comment in lib/booking.ts.
   "DirectorApprovalStatus", "DirectorApprovedAt",
+  // Added for the director's note (ไม่อนุมัติ's reason to the requester, or
+  // ตีกลับ's note to dispatch) and the ตีกลับ timestamp — same manual-add
+  // convention; blank Z/AA cells read back as "" (see rowToBooking and
+  // Booking.directorNote/directorReturnedAt's doc comments in
+  // lib/booking.ts).
+  "DirectorNote", "DirectorReturnedAt",
 ];
 
 function getBookingResourcesTab(): string {
@@ -1754,6 +1769,11 @@ function rowToBooking(row: string[]): Booking {
     editedAt: col(22),
     directorApprovalStatus: parseDirectorApprovalStatus(col(23)),
     directorApprovedAt: col(24),
+    // คอลัมน์ Z/AA เพิ่มทีหลัง (ดูคอมเมนต์ Booking.directorNote/
+    // directorReturnedAt ใน lib/booking.ts) — แถวเก่าก่อนมีคอลัมน์นี้อ่านเป็น
+    // "" ตามปกติเหมือนทุกคอลัมน์ blank-means-not-applicable อื่นในไฟล์นี้.
+    directorNote: col(25),
+    directorReturnedAt: col(26),
   };
 }
 
@@ -1764,6 +1784,7 @@ function bookingToRow(b: Booking): (string | number)[] {
     b.bookedByDisplayName, b.department, b.createdAt, b.cancelledAt, b.cancelledByUsername,
     b.approvalStatus, b.approvedAt, b.approvedByUsername, b.companions, b.tripOrderId,
     b.editedByUsername, b.editedAt, b.directorApprovalStatus, b.directorApprovedAt,
+    b.directorNote, b.directorReturnedAt,
   ];
 }
 
@@ -2069,7 +2090,7 @@ export async function getBookings(): Promise<Booking[]> {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:Y100000`,
+      range: `${tab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2161,6 +2182,8 @@ export async function createBooking(input: {
     editedAt: "",
     directorApprovalStatus: "",
     directorApprovedAt: "",
+    directorNote: "",
+    directorReturnedAt: "",
   };
 
   try {
@@ -2211,7 +2234,7 @@ export async function cancelBooking(bookingId: string, cancelledByUsername: stri
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:Y100000`,
+      range: `${tab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2234,7 +2257,7 @@ export async function cancelBooking(bookingId: string, cancelledByUsername: stri
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
+      range: `${tab}!A${sheetRow}:AA${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2272,7 +2295,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:Y100000`,
+      range: `${tab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2303,7 +2326,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
+      range: `${tab}!A${sheetRow}:AA${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2352,7 +2375,7 @@ export async function editBookingByManagement(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:Y100000`,
+      range: `${tab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2392,7 +2415,7 @@ export async function editBookingByManagement(
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
+      range: `${tab}!A${sheetRow}:AA${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2622,7 +2645,7 @@ export async function createTripOrder(input: {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${bookingsTab}!A2:Y100000`,
+      range: `${bookingsTab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2695,6 +2718,11 @@ export async function createTripOrder(input: {
     // "car" ไว้แล้วที่ด้านบน) — ไม่กระทบ approvalStatus/TripOrder เดิมเลย.
     directorApprovalStatus: "pending",
     directorApprovedAt: "",
+    // ถ้าคำขอนี้เคยถูก ผอ. "ตีกลับ" มาก่อน (ดู returnTripToDispatch
+    // ด้านล่าง) ตอนนี้ถูกจัดรถใหม่แล้ว — ล้างข้อความ/เวลาตีกลับเดิมทิ้ง ไม่ให้
+    // แบนเนอร์ "ผอ. ตีกลับ" ค้างอยู่ในหน้าจองรถเกินกว่าใบสั่งงานที่มันพูดถึง.
+    directorNote: "",
+    directorReturnedAt: "",
   }));
 
   try {
@@ -2703,7 +2731,7 @@ export async function createTripOrder(input: {
       requestBody: {
         valueInputOption: "RAW",
         data: targets.map(({ rowIndex }, i) => ({
-          range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
+          range: `${bookingsTab}!A${rowIndex + 2}:AA${rowIndex + 2}`,
           values: [bookingToRow(updatedBookings[i])],
         })),
       },
@@ -2799,7 +2827,7 @@ export async function updateTripOrder(
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${bookingsTab}!A2:Y100000`,
+        range: `${bookingsTab}!A2:AA100000`,
       });
       bookingValues = res.data.values as string[][] | undefined;
     } catch (err: unknown) {
@@ -2861,10 +2889,13 @@ export async function updateTripOrder(
       approvedAt,
       approvedByUsername: actorUsername,
       tripOrderId: merged.tripOrderId,
-      // เพิ่มเข้าใบสั่งงานที่จัดรถ/คนขับแล้ว — เข้าคิวรอ ผอ. รับทราบเหมือนกับ
-      // createTripOrder ด้านบน.
+      // เพิ่มเข้าใบสั่งงานที่จัดรถ/คนขับแล้ว — เข้าคิวรอ ผอ. อนุมัติเหมือนกับ
+      // createTripOrder ด้านบน. ล้างข้อความ/เวลาตีกลับเดิม (ถ้ามี) ด้วยเหตุผล
+      // เดียวกับที่ createTripOrder ทำ.
       directorApprovalStatus: "pending",
       directorApprovedAt: "",
+      directorNote: "",
+      directorReturnedAt: "",
     }));
     try {
       await sheets.spreadsheets.values.batchUpdate({
@@ -2872,7 +2903,7 @@ export async function updateTripOrder(
         requestBody: {
           valueInputOption: "RAW",
           data: bookingTargets.map(({ rowIndex }, i) => ({
-            range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
+            range: `${bookingsTab}!A${rowIndex + 2}:AA${rowIndex + 2}`,
             values: [bookingToRow(addedBookings[i])],
           })),
         },
@@ -2953,7 +2984,7 @@ export async function splitBookingFromTripOrder(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${bookingsTab}!A2:Y100000`,
+      range: `${bookingsTab}!A2:AA100000`,
     });
     bookingValues = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2986,9 +3017,12 @@ export async function splitBookingFromTripOrder(
     editedByUsername: actorUsername,
     editedAt,
     // แยกออกจากใบสั่งงานแล้ว — ไม่มีการจัดรถ/คนขับรองรับอีกต่อไป จึงไม่มีอะไร
-    // ให้ ผอ. รับทราบแล้ว กลับไปเป็น "" เหมือนคำขอที่สร้างใหม่.
+    // ให้ ผอ. อนุมัติแล้ว กลับไปเป็น "" เหมือนคำขอที่สร้างใหม่ (เช่นเดียวกับ
+    // directorNote/directorReturnedAt — กันไว้เผื่อค้างจากครั้งก่อน).
     directorApprovalStatus: "",
     directorApprovedAt: "",
+    directorNote: "",
+    directorReturnedAt: "",
   };
 
   const tripSheetRow = tripIdx + 2;
@@ -3009,7 +3043,7 @@ export async function splitBookingFromTripOrder(
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${bookingsTab}!A${bookingSheetRow}:Y${bookingSheetRow}`,
+      range: `${bookingsTab}!A${bookingSheetRow}:AA${bookingSheetRow}`,
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(updatedBooking)] },
     });
@@ -3030,68 +3064,106 @@ export async function splitBookingFromTripOrder(
 
 /**
  * หน้า /director (ดู src/app/director/page.tsx) — รายการจองรถที่ "รอ ผอ.
- * รับทราบ" (directorApprovalStatus === "pending") พร้อมข้อมูลรถ/คนขับ/ช่วงเวลา
+ * อนุมัติ" (directorApprovalStatus === "pending") พร้อมข้อมูลรถ/คนขับ/ช่วงเวลา
  * ที่จัดไว้แล้วจาก TripOrder ที่ครอบคลุม — คัดมาเฉพาะเท่าที่ ผอ. ต้องเห็นจริงๆ
  * (ตามที่ขอ "ไม่มีรายละเอียดเยอะเกินความจำเป็น") ไม่ใช่ Booking/TripOrder เต็ม
- * รูปแบบ. อ่าน getBookings + getTripOrders ตรงๆ แทนการเพิ่ม range พิเศษ — ทั้ง
- * สองฟังก์ชันนี้ก็ต้องอ่านทั้งแท็บอยู่แล้วเหมือนกัน (ไม่มี caching ในชั้นนี้ของ
- * แอป ดูคอมเมนต์ที่ cachedAuth ด้านบนว่าแคชแค่ตัว auth client เท่านั้น) จึงไม่
- * ได้แพงขึ้นกว่าการเรียก 2 ครั้งตรงๆ แบบนี้.
- */
-export interface DirectorTripItem {
+ * รูปแบบ. อ่าน getBookings + getTripOrders + getBookingResources ตรงๆ แทนการ
+ * เพิ่ม range พิเศษ — ทั้งสามฟังก์ชันนี้ก็ต้องอ่านทั้งแท็บอยู่แล้วเหมือนกัน (ไม่มี
+ * caching ในชั้นนี้ของแอป ดูคอมเมนต์ที่ cachedAuth ด้านบนว่าแคชแค่ตัว auth
+ * client เท่านั้น) จึงไม่ได้แพงขึ้นกว่าการเรียก 3 ครั้งตรงๆ แบบนี้.
+ *
+ * จัดกลุ่มตาม tripOrderId เป็นรายการเดียวต่อหนึ่งใบสั่งงาน (ตามที่ขอ "ให้สอง
+ * คำขอนี้เดินทางไปด้วยกันรถคันเดียวกันให้รวมรายการคำขอเป็นรายการเดียวให้อนุมัติ
+ * ครั้งเดียวพร้อมกัน") — requests ด้านในคือคำขอ(หลาย)รายการที่ TripOrder นี้
+ * ครอบคลุม ส่วนรถ/คนขับ/ช่วงเวลาเป็นของ TripOrder เดียวที่ใช้ร่วมกันทั้งกลุ่ม. */
+export interface DirectorTripRequestItem {
   bookingId: string;
-  tripOrderId: string;
   purpose: string;
   destination: string;
   participants: number;
-  startTime: string;
-  endTime: string;
   bookedByDisplayName: string;
   department: string;
-  resourceName: string;
-  driverName: string;
   companions: string;
 }
 
-export async function getDirectorPendingTrips(): Promise<DirectorTripItem[]> {
-  const [bookings, tripOrders] = await Promise.all([getBookings(), getTripOrders()]);
-  const tripOrderById = new Map(tripOrders.map((t) => [t.tripOrderId, t]));
-
-  return bookings
-    .filter((b) => b.directorApprovalStatus === "pending" && !isBookingCancelled(b))
-    .map((b) => {
-      const trip = tripOrderById.get(b.tripOrderId);
-      return {
-        bookingId: b.bookingId,
-        tripOrderId: b.tripOrderId,
-        purpose: b.purpose,
-        destination: b.destination,
-        participants: b.participants,
-        // ช่วงเวลาที่ TripOrder จัดจริง (อาจต่างจากที่ขอมาตอนแรก) — ถ้าหา
-        // TripOrder ไม่เจอ (ไม่ควรเกิดขึ้น แต่กันพลาด) ใช้ช่วงเวลาที่ขอมาแทน.
-        startTime: trip?.startTime || b.startTime,
-        endTime: trip?.endTime || b.endTime,
-        bookedByDisplayName: b.bookedByDisplayName,
-        department: b.department,
-        resourceName: trip?.resourceName || b.resourceName,
-        driverName: trip?.driverName || "",
-        companions: b.companions,
-      };
-    })
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+export interface DirectorTripItem {
+  tripOrderId: string;
+  startTime: string;
+  endTime: string;
+  resourceName: string;
+  /** "" เมื่อไม่พบรูปของรถคันนี้ (ยังไม่เคยอัปโหลด หรือจับคู่ชื่อไม่ได้ — ดู
+   * คอมเมนต์ที่ match ด้านล่าง) — ฝั่ง UI แสดงไอคอนรถเปล่าแทนในกรณีนี้. */
+  resourceImageDataUrl: string;
+  driverName: string;
+  requests: DirectorTripRequestItem[];
 }
 
-/** ผอ. กดรับทราบ/ไม่รับทราบ — ทีละรายการหรือหลายรายการพร้อมกันก็ได้ (ตามที่
- * ขอ "คลิ๊กไม่กี่คลิ๊กสามารถอนุมัติรายการเดินทางหลายรายการได้ในครั้งเดียว")
- * เขียนทีละแถวผ่าน batchUpdate เหมือน createTripOrder ด้านบน. รายการที่หา
- * ไม่เจอ หรือไม่ได้อยู่ในสถานะ "pending" แล้ว (เช่นถูกแยกออกจากใบสั่งงาน หรือ
- * ผอ. อีกแท็บ/อีกครั้งกดไปแล้ว) ถูกข้ามอย่างเงียบๆ แทนการ throw ทั้งชุด — เพราะ
- * นี่เป็นการกดยืนยันหลายรายการพร้อมกัน รายการเดียวที่ค้างไม่ควรทำให้รายการที่
- * เหลือกดไม่ติดไปด้วย. คืนรายการ bookingId ที่ตั้งค่าสำเร็จจริงกลับไป ให้ฝั่ง
- * UI รู้ว่ารายการไหนหลุดไปบ้าง. */
+export async function getDirectorPendingTrips(): Promise<DirectorTripItem[]> {
+  const [bookings, tripOrders, resources] = await Promise.all([
+    getBookings(),
+    getTripOrders(),
+    getBookingResources(),
+  ]);
+  const tripOrderById = new Map(tripOrders.map((t) => [t.tripOrderId, t]));
+  // จับคู่รูปรถด้วยชื่อ — TripOrder เก็บแค่ resourceName มาตั้งแต่แรก (snapshot
+  // ตอนจ่ายรถ ดูคอมเมนต์ TripOrder.resourceName ใน lib/booking.ts) ไม่มี
+  // resourceId เก็บไว้ให้ join ตรงๆ ชื่อซ้ำกัน (เช่นรถถูกลบแล้วสร้างใหม่ชื่อเดิม)
+  // จะได้รูปของตัวที่ query เจอก่อน — ยอมรับได้เพราะเป็นแค่รูปประกอบการพิจารณา
+  // ไม่ใช่ข้อมูลที่ผลต่อการอนุมัติ.
+  const resourceByName = new Map(resources.map((r) => [r.name, r]));
+
+  const groups = new Map<string, DirectorTripItem>();
+  for (const b of bookings) {
+    if (b.directorApprovalStatus !== "pending" || isBookingCancelled(b)) continue;
+    const trip = tripOrderById.get(b.tripOrderId);
+    let group = groups.get(b.tripOrderId);
+    if (!group) {
+      const resourceName = trip?.resourceName || b.resourceName;
+      group = {
+        tripOrderId: b.tripOrderId,
+        startTime: trip?.startTime || b.startTime,
+        endTime: trip?.endTime || b.endTime,
+        resourceName,
+        resourceImageDataUrl: resourceByName.get(resourceName)?.imageDataUrl || "",
+        driverName: trip?.driverName || "",
+        requests: [],
+      };
+      groups.set(b.tripOrderId, group);
+    }
+    group.requests.push({
+      bookingId: b.bookingId,
+      purpose: b.purpose,
+      destination: b.destination,
+      participants: b.participants,
+      bookedByDisplayName: b.bookedByDisplayName,
+      department: b.department,
+      companions: b.companions,
+    });
+  }
+
+  return Array.from(groups.values()).sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+/** ผอ. กดอนุมัติ/ไม่อนุมัติ — ทีละรายการหรือหลายรายการพร้อมกันก็ได้ (ตามที่
+ * ขอ "คลิ๊กไม่กี่คลิ๊กสามารถอนุมัติรายการเดินทางหลายรายการได้ในครั้งเดียว", และ
+ * ทุกคำขอที่รวมอยู่ในใบสั่งงานเดียวกันถูกส่งมาพร้อมกันเป็นก้อนเดียวจาก
+ * DirectorDashboard เพื่อ "อนุมัติครั้งเดียวพร้อมกัน" — ดู getDirectorPendingTrips
+ * ด้านบน) เขียนทีละแถวผ่าน batchUpdate เหมือน createTripOrder ด้านบน. รายการ
+ * ที่หาไม่เจอ หรือไม่ได้อยู่ในสถานะ "pending" แล้ว (เช่นถูกแยกออกจากใบสั่งงาน
+ * หรือ ผอ. อีกแท็บ/อีกครั้งกดไปแล้ว) ถูกข้ามอย่างเงียบๆ แทนการ throw ทั้งชุด —
+ * เพราะนี่เป็นการกดยืนยันหลายรายการพร้อมกัน รายการเดียวที่ค้างไม่ควรทำให้รายการ
+ * ที่เหลือกดไม่ติดไปด้วย. คืนรายการ bookingId ที่ตั้งค่าสำเร็จจริงกลับไป ให้ฝั่ง
+ * UI รู้ว่ารายการไหนหลุดไปบ้าง.
+ *
+ * `comment` — ข้อความจาก ผอ. เก็บลง Booking.directorNote ของทุกแถวที่อัปเดต
+ * สำเร็จ ("" ถ้าไม่ได้กรอก) ตามที่ขอเพิ่ม "ช่องที่ผอ.ท่านสามารถชี้แจงเหตุผลกับ
+ * ผู้จองว่าทำไมถึงไม่ให้" สำหรับกรณีไม่อนุมัติ — ใช้ฟิลด์เดียวกันได้ทั้งอนุมัติ/
+ * ไม่อนุมัติ เผื่ออนาคตอยากฝากข้อความตอนอนุมัติด้วย แม้ตอนนี้ฝั่ง UI จะเก็บช่อง
+ * นี้ไว้เฉพาะตอนไม่อนุมัติก็ตาม. */
 export async function setDirectorDecision(
   bookingIds: string[],
-  decision: "approved" | "rejected"
+  decision: "approved" | "rejected",
+  comment: string = ""
 ): Promise<{ updatedBookingIds: string[] }> {
   if (bookingIds.length === 0) return { updatedBookingIds: [] };
 
@@ -3103,7 +3175,7 @@ export async function setDirectorDecision(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${bookingsTab}!A2:Y100000`,
+      range: `${bookingsTab}!A2:AA100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -3129,12 +3201,13 @@ export async function setDirectorDecision(
       requestBody: {
         valueInputOption: "RAW",
         data: targets.map(({ rowIndex, booking }) => ({
-          range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
+          range: `${bookingsTab}!A${rowIndex + 2}:AA${rowIndex + 2}`,
           values: [
             bookingToRow({
               ...booking,
               directorApprovalStatus: decision,
               directorApprovedAt: decidedAt,
+              directorNote: comment,
             }),
           ],
         })),
@@ -3142,10 +3215,138 @@ export async function setDirectorDecision(
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`บันทึกการรับทราบของ ผอ. ไม่สำเร็จ: ${message}`);
+    throw new Error(`บันทึกการอนุมัติของ ผอ. ไม่สำเร็จ: ${message}`);
   }
 
   return { updatedBookingIds: targets.map((t) => t.booking.bookingId) };
+}
+
+/** ผอ. กด "ตีกลับ" ใบสั่งงานทั้งใบ (ไม่ใช่รายคำขอ) ให้ฝ่ายบริหารผู้จัดรถ
+ * พิจารณาจัดรถใหม่ — ต่างจาก setDirectorDecision ด้านบนตรงที่นี่คือการยกเลิก
+ * การจัดรถเดิมทั้งหมดและคืนทุกคำขอที่ TripOrder นี้ครอบคลุมกลับไปเป็น "รอจัดรถ"
+ * ตั้งแต่ต้น (ยืนยันกับผู้ใช้แล้วว่าต้องการพฤติกรรมนี้ ไม่ใช่แค่ติดป้ายเตือนไว้
+ * เฉยๆ) — เหมือนกับที่ splitBookingFromTripOrder ทำกับคำขอเดียว เพียงแต่ทำกับ
+ * ทุกคำขอในใบสั่งงานพร้อมกัน และใส่ข้อความของ ผอ. (`comment`) ลงไปด้วย ("ช่อง
+ * คอมเม้นด้วยว่าท่านมีอะไรจะบอกกับผู้จัดรถ" ตามที่ขอ) ให้ฝ่ายบริหารเห็นตอนจัด
+ * รถใหม่ (ดู Booking.directorNote/directorReturnedAt และแบนเนอร์ใน
+ * BookingDashboard.tsx)
+ *
+ * ใบสั่งงานเดิมไม่ถูกลบแถวทิ้ง (ตาม convention "ไม่ลบจริง" ทั้งไฟล์นี้) แค่ถูก
+ * ล้าง bookingIds เหลือรายการเปล่า ("ตีกลับ" = ยกเลิกใบสั่งงานทั้งใบ ซึ่งเดิมยัง
+ * ไม่มีฟังก์ชันรองรับเลยจนกว่าจะมีนี้ — ดูคอมเมนต์ของ
+ * splitBookingFromTripOrder ด้านบนว่าเคยพูดถึงไว้ว่า "ยังไม่มีฟังก์ชันรองรับ")
+ * เขียนใบสั่งงานก่อนเสมอ แล้วค่อยเขียนแถวคำขอ — เหตุผลเดียวกับฟังก์ชันอื่นๆ ใน
+ * ไฟล์นี้ที่แก้ทั้งสองแท็บ. */
+export async function returnTripToDispatch(
+  tripOrderId: string,
+  comment: string,
+  actorUsername: string
+): Promise<{ tripOrder: TripOrder; bookings: Booking[] }> {
+  const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
+  const tripOrdersTab = getTripOrdersTab();
+  const bookingsTab = getBookingsTab();
+  const sheets = google.sheets({ version: "v4", auth: sheetsAuth() });
+
+  let tripValues: string[][] | undefined;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${tripOrdersTab}!A2:J100000`,
+    });
+    tripValues = res.data.values as string[][] | undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`อ่านรายการใบสั่งงานไม่สำเร็จ: ${message}`);
+  }
+  const tripRows = tripValues ?? [];
+  const tripIdx = tripRows.findIndex((row) => (row[0] ?? "").toString().trim() === tripOrderId);
+  if (tripIdx === -1) {
+    throw new Error("ไม่พบใบสั่งงานนี้ — อาจถูกตีกลับไปแล้วก่อนหน้านี้");
+  }
+  const current = rowToTripOrder(tripRows[tripIdx]);
+  if (current.bookingIds.length === 0) {
+    throw new Error("ใบสั่งงานนี้ไม่มีคำขอจองเหลืออยู่แล้ว");
+  }
+
+  let bookingValues: string[][] | undefined;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${bookingsTab}!A2:AA100000`,
+    });
+    bookingValues = res.data.values as string[][] | undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`อ่านรายการจองไม่สำเร็จ: ${message}`);
+  }
+  const bookingRows = bookingValues ?? [];
+
+  const targets: { rowIndex: number; booking: Booking }[] = [];
+  for (const bookingId of current.bookingIds) {
+    const idx = bookingRows.findIndex((row) => (row[0] ?? "").toString().trim() === bookingId);
+    if (idx === -1) continue; // กันพลาด — ไม่ควรเกิดขึ้น
+    const booking = rowToBooking(bookingRows[idx]);
+    if (isBookingCancelled(booking)) continue; // ยกเลิกไปแล้ว ไม่ต้องตีกลับอีก
+    targets.push({ rowIndex: idx, booking });
+  }
+  if (targets.length === 0) {
+    throw new Error("ไม่พบคำขอจองที่ยังใช้งานอยู่ในใบสั่งงานนี้");
+  }
+
+  const returnedAt = new Date().toISOString();
+  const updatedBookings: Booking[] = targets.map(({ booking }) => ({
+    ...booking,
+    resourceId: "",
+    resourceName: PENDING_CAR_RESOURCE_NAME,
+    approvalStatus: "pending",
+    approvedAt: "",
+    approvedByUsername: "",
+    tripOrderId: "",
+    editedByUsername: actorUsername,
+    editedAt: returnedAt,
+    directorApprovalStatus: "",
+    directorApprovedAt: "",
+    directorNote: comment,
+    directorReturnedAt: returnedAt,
+  }));
+  const dissolvedTripOrder: TripOrder = { ...current, bookingIds: [] };
+
+  const tripSheetRow = tripIdx + 2;
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${tripOrdersTab}!A${tripSheetRow}:J${tripSheetRow}`,
+      // RAW — see the note on createBooking's append() above.
+      valueInputOption: "RAW",
+      requestBody: { values: [tripOrderToRow(dissolvedTripOrder)] },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`บันทึกการตีกลับใบสั่งงานไม่สำเร็จ: ${message}`);
+  }
+
+  try {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "RAW",
+        data: targets.map(({ rowIndex }, i) => ({
+          range: `${bookingsTab}!A${rowIndex + 2}:AA${rowIndex + 2}`,
+          values: [bookingToRow(updatedBookings[i])],
+        })),
+      },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // ใบสั่งงานด้านบนถูกล้าง bookingIds ไปแล้ว — คำขอเหล่านี้จึงไม่มีใบสั่งงาน
+    // รองรับอีกต่อไปไม่ว่าขั้นนี้จะสำเร็จหรือไม่ แค่สถานะยังค้างผิดอยู่ ต้อง
+    // ลองใหม่ให้ครบ เหมือน splitBookingFromTripOrder ด้านบน.
+    throw new Error(
+      `ตีกลับใบสั่งงานสำเร็จ แต่ปรับสถานะคำขอที่เกี่ยวข้องกลับเป็น "รอจัดรถ" ไม่สำเร็จ (${message}) — กรุณาตรวจสอบรายการจองและลองใหม่หากยังค้างอยู่`
+    );
+  }
+
+  return { tripOrder: dissolvedTripOrder, bookings: updatedBookings };
 }
 
 /** รหัสผ่านของหน้า ผอ. (/director) — เก็บแบบ key/value แท็บเดียวกับ
