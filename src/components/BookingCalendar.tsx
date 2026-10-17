@@ -612,12 +612,19 @@ function DayDetailModal({
               const isCar = first.resourceType === "car";
               // รถ: ไม่ใช้สีระบุตัวตนรถ/เที่ยวแล้ว — จุดสี/กรอบตอนนี้บอกสถานะ
               // แทน (ดูคอมเมนต์ที่ CAR_STATUS_DOT_CLASSES ด้านบน) กลุ่มที่
-              // เดินทางร่วมกัน (>1 คำขอ) ล้วนมีใบสั่งงานคุมอยู่แล้วจึงถือว่า
-              // "อนุมัติแล้ว" เสมอ (เขียว) ส่วนกลุ่มเดี่ยวใช้สถานะของคำขอนั้นเอง
-              // — ห้องประชุมยังคงใช้สีระบุตัวตนทรัพยากร (resourceColorMap)
-              // เหมือนเดิมทุกประการ
+              // เดินทางร่วมกัน (>1 คำขอ) ล้วนมีใบสั่งงานคุมอยู่แล้วจึง "จัดรถ
+              // แล้ว" เสมอ แต่ "อนุมัติแล้ว" (เขียว) ต้องรอ ผอ. จริงๆ — ถ้ายังมี
+              // คำขอใดในกลุ่มที่ directorApprovalStatus ยัง "pending" อยู่ ให้
+              // ถือเป็นสีเหลืองเหมือนกลุ่มเดี่ยวที่ยังรอ ผอ. (ดูคอมเมนต์ยาวที่
+              // bookingStatusLabel ใน lib/booking.ts ว่าทำไม) ส่วนกลุ่มเดี่ยวใช้
+              // สถานะของคำขอนั้นเองตรงๆ — ห้องประชุมยังคงใช้สีระบุตัวตนทรัพยากร
+              // (resourceColorMap) เหมือนเดิมทุกประการ
               const color = !isCar ? resourceColorMap.get(bookingColorMapKey(first)) : undefined;
-              const carTone = travelingTogether ? "approved" : bookingStatusLabel(first).tone;
+              const carTone = travelingTogether
+                ? items.some((it) => it.directorApprovalStatus === "pending")
+                  ? "pending"
+                  : "approved"
+                : bookingStatusLabel(first).tone;
               const carDotClass = isCar && !allCancelled ? CAR_STATUS_DOT_CLASSES[carTone] : undefined;
               const displayResourceName =
                 first.resourceType === "car" ? carBookingDisplayName(first, trip) : first.resourceName;
@@ -643,7 +650,9 @@ function DayDetailModal({
                       ? "border-zinc-200 opacity-70 dark:border-zinc-800"
                       : isCar
                         ? travelingTogether
-                          ? "border-2 border-emerald-500 dark:border-emerald-400"
+                          ? carTone === "pending"
+                            ? "border-2 border-amber-500 dark:border-amber-400"
+                            : "border-2 border-emerald-500 dark:border-emerald-400"
                           : "border-zinc-200 dark:border-zinc-700"
                         : travelingTogether && color
                           ? "border-2 border-[var(--seg-c)] dark:border-[var(--seg-c-dark)]"

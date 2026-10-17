@@ -403,13 +403,27 @@ export function carBookingDisplayName(
  * director's own sign-off on /director (see directorStatusLabel below);
  * what a superadmin/admin does to a car booking at this level is "จัดรถ"
  * (arrange the car), never "approve" it, so "pending"/"rejected" read
- * "รอจัดรถ"/"ปฏิเสธแล้ว" instead of the old "รออนุมัติ"/"ไม่อนุมัติ". */
+ * "รอจัดรถ"/"ปฏิเสธแล้ว" instead of the old "รออนุมัติ"/"ไม่อนุมัติ".
+ *
+ * Green ("อนุญาต"/tone "approved") is reserved for a car booking the
+ * director has actually signed off on — per the later explicit request
+ * "หลังที่ฝ่ายบริหารจัดรถเสร็จแล้วสถานะที่แสดงในปฎิทินต้องยังไม่ใช่สีเขียว
+ * ต้องเป็นสีเหลืองอยู่ และต้องมีข้อความแสดงอย่างชัดเจนว่ารอการอนุมัติโดย
+ * ผู้อำนวยการ". So once dispatch has happened (approvalStatus "approved")
+ * but the director hasn't decided yet (directorApprovalStatus "pending"),
+ * this still reports tone "pending" (the same yellow already used for
+ * "not dispatched yet") with its own distinct text ("รอ ผอ. อนุมัติ") so
+ * it's never mistaken for a fully-settled request. A room booking's
+ * directorApprovalStatus is always "" (see DirectorApprovalStatus's doc
+ * comment), so this never affects rooms — they still read exactly as they
+ * always have. */
 export function bookingStatusLabel(
-  booking: Pick<Booking, "cancelledAt" | "approvalStatus">
+  booking: Pick<Booking, "cancelledAt" | "approvalStatus" | "directorApprovalStatus">
 ): { text: string; tone: "cancelled" | "pending" | "approved" | "rejected" } {
   if (isBookingCancelled(booking)) return { text: "ยกเลิกแล้ว", tone: "cancelled" };
   if (booking.approvalStatus === "pending") return { text: "รอจัดรถ", tone: "pending" };
   if (booking.approvalStatus === "rejected") return { text: "ปฏิเสธแล้ว", tone: "rejected" };
+  if (booking.directorApprovalStatus === "pending") return { text: "รอ ผอ. อนุมัติ", tone: "pending" };
   return { text: "อนุญาต", tone: "approved" };
 }
 
