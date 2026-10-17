@@ -368,13 +368,20 @@ export function carBookingDisplayName(
  * cancelled booking is cancelled regardless of whether it was ever
  * approved — otherwise this just mirrors approvalStatus, which is always
  * "approved" for a room booking (see createBooking in lib/sheets.ts), so a
- * room booking always reads exactly as it always has. */
+ * room booking always reads exactly as it always has.
+ *
+ * Text deliberately avoids the word "อนุมัติ" (approve) — per the
+ * hospital's later explicit request, that word is reserved for the
+ * director's own sign-off on /director (see directorStatusLabel below);
+ * what a superadmin/admin does to a car booking at this level is "จัดรถ"
+ * (arrange the car), never "approve" it, so "pending"/"rejected" read
+ * "รอจัดรถ"/"ปฏิเสธแล้ว" instead of the old "รออนุมัติ"/"ไม่อนุมัติ". */
 export function bookingStatusLabel(
   booking: Pick<Booking, "cancelledAt" | "approvalStatus">
 ): { text: string; tone: "cancelled" | "pending" | "approved" | "rejected" } {
   if (isBookingCancelled(booking)) return { text: "ยกเลิกแล้ว", tone: "cancelled" };
-  if (booking.approvalStatus === "pending") return { text: "รออนุมัติ", tone: "pending" };
-  if (booking.approvalStatus === "rejected") return { text: "ไม่อนุมัติ", tone: "rejected" };
+  if (booking.approvalStatus === "pending") return { text: "รอจัดรถ", tone: "pending" };
+  if (booking.approvalStatus === "rejected") return { text: "ปฏิเสธแล้ว", tone: "rejected" };
   return { text: "อนุญาต", tone: "approved" };
 }
 

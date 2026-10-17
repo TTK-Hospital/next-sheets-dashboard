@@ -220,7 +220,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   if (!canApproveCarBooking(session)) {
     return NextResponse.json(
-      { error: "แก้ไข/ไม่อนุมัติการจองรถได้เฉพาะสิทธิ์ Superadmin เท่านั้น" },
+      { error: "แก้ไข/ปฏิเสธการจองรถได้เฉพาะสิทธิ์ Superadmin เท่านั้น" },
       { status: 403 }
     );
   }
@@ -232,7 +232,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json(
       {
         error:
-          "การอนุมัติการจองรถต้องออกใบสั่งงานเดินทาง (ระบุรถ/คนขับ/เวลา) ผ่านหน้าจัดรถ ไม่สามารถอนุมัติตรงนี้ได้อีกต่อไป",
+          "การจัดรถต้องออกใบสั่งงานเดินทาง (ระบุรถ/คนขับ/เวลา) ผ่านหน้าจัดรถ ไม่สามารถจัดรถตรงนี้ได้อีกต่อไป",
       },
       { status: 400 }
     );
@@ -242,7 +242,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const updated = await rejectCarBooking(bookingId, session.username);
     await appendEditLog({
       timestamp: new Date().toISOString(),
-      action: "ไม่อนุมัติการจองรถ",
+      action: "ปฏิเสธการจองรถ",
       actor: session.username,
       department: session.department,
       oldValue: "",

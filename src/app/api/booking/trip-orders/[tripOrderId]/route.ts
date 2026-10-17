@@ -148,7 +148,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           splitBooking.startTime
         )} – ${formatBookingDateTime(splitBooking.endTime)}) ออกจากใบสั่งงาน ${updated.resourceName} คนขับ: ${
           updated.driverName || "—"
-        } — กลับเป็นรออนุมัติแล้ว ${requestAuditTag(request)}`,
+        } — กลับเป็นรอจัดรถแล้ว ${requestAuditTag(request)}`,
       });
 
       // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort (ดูคอมเมนต์หัวไฟล์

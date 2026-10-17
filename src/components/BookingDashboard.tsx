@@ -466,7 +466,7 @@ export default function BookingDashboard({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setActionError(json.error || "บันทึกผลการไม่อนุมัติไม่สำเร็จ");
+        setActionError(json.error || "บันทึกผลการปฏิเสธคำขอไม่สำเร็จ");
         return;
       }
       const updated = json.booking as Booking;
@@ -482,7 +482,7 @@ export default function BookingDashboard({
         return next;
       });
     } catch {
-      setActionError("บันทึกผลการไม่อนุมัติไม่สำเร็จ กรุณาลองใหม่");
+      setActionError("บันทึกผลการปฏิเสธคำขอไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setRejectingBookingId(null);
     }
@@ -514,7 +514,7 @@ export default function BookingDashboard({
     setSelectedBookingIds(new Set());
     setTripOrderModalOpen(false);
     notify(
-      `อนุมัติสำเร็จ (${tripOrder.resourceName} · คนขับ: ${tripOrder.driverName || "—"}) — รายการจองที่เกี่ยวข้อง ${updatedBookings.length.toLocaleString("th-TH")} รายการปรับสถานะเป็น "อนุญาต" ในปฏิทินแล้ว`
+      `จัดรถสำเร็จ (${tripOrder.resourceName} · คนขับ: ${tripOrder.driverName || "—"}) — รายการจองที่เกี่ยวข้อง ${updatedBookings.length.toLocaleString("th-TH")} รายการปรับสถานะเป็น "อนุญาต" ในปฏิทินแล้ว`
     );
   }
 
@@ -569,7 +569,7 @@ export default function BookingDashboard({
     });
     setEditTripOrderTarget(null);
     notify(
-      `แยกรายการสำเร็จ (${booking.department || booking.bookedByDisplayName || booking.bookedByUsername}) — กลับเป็น "รออนุมัติ" แล้ว ออกใบสั่งงานแยกให้ใหม่ได้จากรายการรออนุมัติ`
+      `แยกรายการสำเร็จ (${booking.department || booking.bookedByDisplayName || booking.bookedByUsername}) — กลับเป็น "รอจัดรถ" แล้ว ออกใบสั่งงานแยกให้ใหม่ได้จากรายการรอจัดรถ`
     );
   }
 
@@ -932,7 +932,7 @@ export default function BookingDashboard({
                                       ) : (
                                         <XIcon size={12} strokeWidth={2} aria-hidden="true" />
                                       )}
-                                      ไม่อนุมัติ
+                                      ปฏิเสธคำขอ
                                     </button>
                                   </>
                                 )}

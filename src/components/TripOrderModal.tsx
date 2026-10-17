@@ -525,7 +525,7 @@ export default function TripOrderModal({
       `ยืนยันแยก "${booking.department || booking.bookedByDisplayName || booking.bookedByUsername}" (${formatBookingDateRange(
         booking.startTime,
         booking.endTime
-      )}) ออกจากใบสั่งงานนี้ใช่หรือไม่?\n\nคำขอนี้จะกลับไปเป็น "รออนุมัติ" และต้องออกใบสั่งงานแยกให้ใหม่`
+      )}) ออกจากใบสั่งงานนี้ใช่หรือไม่?\n\nคำขอนี้จะกลับไปเป็น "รอจัดรถ" และต้องออกใบสั่งงานแยกให้ใหม่`
     );
     if (!confirmed) return;
 
@@ -958,7 +958,7 @@ export default function TripOrderModal({
                 ) : (
                   <Save size={16} strokeWidth={2} aria-hidden="true" />
                 )}
-                {editing ? "บันทึกการแก้ไข" : "อนุมัติ"}
+                {editing ? "บันทึกการแก้ไข" : "จัดรถ"}
               </button>
             </div>
           </form>

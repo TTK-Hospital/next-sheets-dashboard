@@ -903,7 +903,7 @@ function DayDetailModal({
                                 ) : (
                                   <X size={12} strokeWidth={2} aria-hidden="true" />
                                 )}
-                                ไม่อนุมัติ
+                                ปฏิเสธคำขอ
                               </button>
                             </>
                           )}

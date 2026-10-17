@@ -322,12 +322,19 @@ export type EditLogAction =
   | "แก้ไขคนขับรถ"
   | "จองทรัพยากร"
   | "ยกเลิกการจอง"
-  // "อนุมัติการจองรถ" retired from the write path (approval now always goes
-  // through "ออกใบสั่งงานเดินทาง" below) but kept in the union — old EditLog
-  // rows already logged with this action string still need to type-check
-  // against anything that reads EditLog rows back typed as EditLogAction.
+  // "อนุมัติการจองรถ"/"ไม่อนุมัติการจองรถ" retired from the write path —
+  // approval now always goes through "ออกใบสั่งงานเดินทาง" below, and the
+  // reject path now logs "ปฏิเสธการจองรถ" instead (per the hospital's later
+  // explicit request to drop the word "อนุมัติ" from everything at the
+  // superadmin/admin level — only the director's own /director sign-off is
+  // ever called "อนุมัติ" conceptually, and even that page itself uses
+  // "รับทราบ" wording, never this string) — both old strings are kept in
+  // the union only because old EditLog rows already logged with them still
+  // need to type-check against anything that reads EditLog rows back typed
+  // as EditLogAction.
   | "อนุมัติการจองรถ"
   | "ไม่อนุมัติการจองรถ"
+  | "ปฏิเสธการจองรถ"
   // Dispatching one or more pending car bookings at once (POST
   // /api/booking/trip-orders) — the new "approve" for a car booking; see
   // TripOrder's doc comment in lib/booking.ts.
@@ -2280,7 +2287,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
   }
   const current = rowToBooking(rows[idx]);
   if (current.resourceType !== "car") {
-    throw new Error("การจองนี้ไม่ต้องรออนุมัติ");
+    throw new Error("การจองนี้ไม่ต้องรอจัดรถ");
   }
   if (current.approvalStatus !== "pending") {
     throw new Error("รายการจองนี้ถูกพิจารณาไปแล้ว");
@@ -2303,7 +2310,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`บันทึกผลการไม่อนุมัติไม่สำเร็จ: ${message}`);
+    throw new Error(`บันทึกผลการปฏิเสธคำขอไม่สำเร็จ: ${message}`);
   }
 
   return merged;
@@ -3014,7 +3021,7 @@ export async function splitBookingFromTripOrder(
     // อาจเข้าใจผิดได้ — เป็นคำขอที่ "หลุด" ออกจากใบสั่งงานแล้วแต่สถานะยังไม่
     // อัปเดตตามแค่นั้น)
     throw new Error(
-      `แยกรายการออกจากใบสั่งงานสำเร็จ แต่ปรับสถานะคำขอที่แยกออกกลับเป็น "รออนุมัติ" ไม่สำเร็จ (${message}) — กรุณาตรวจสอบรายการจองและลองใหม่หากยังค้างอยู่`
+      `แยกรายการออกจากใบสั่งงานสำเร็จ แต่ปรับสถานะคำขอที่แยกออกกลับเป็น "รอจัดรถ" ไม่สำเร็จ (${message}) — กรุณาตรวจสอบรายการจองและลองใหม่หากยังค้างอยู่`
     );
   }
 

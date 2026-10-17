@@ -250,15 +250,15 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
           const newOnes = stillPending.filter((b) => !seenIds.current!.has(b.bookingId));
           if (newOnes.length === 1) {
             const requester = newOnes[0].bookedByDisplayName || newOnes[0].bookedByUsername;
-            pushToast(`มีรายการจองรถรออนุมัติใหม่: ${newOnes[0].resourceName} (${requester})`);
+            pushToast(`มีรายการจองรถรอจัดรถใหม่: ${newOnes[0].resourceName} (${requester})`);
           } else if (newOnes.length > 1) {
-            pushToast(`มีรายการจองรถรออนุมัติใหม่ ${newOnes.length} รายการ`);
+            pushToast(`มีรายการจองรถรอจัดรถใหม่ ${newOnes.length} รายการ`);
           }
         } else if (stillPending.length > 0) {
           pushToast(
             stillPending.length === 1
-              ? "มีรายการจองรถรออนุมัติ 1 รายการ"
-              : `มีรายการจองรถรออนุมัติ ${stillPending.length} รายการ`
+              ? "มีรายการจองรถรอจัดรถ 1 รายการ"
+              : `มีรายการจองรถรอจัดรถ ${stillPending.length} รายการ`
           );
         }
         seenIds.current = currentIds;
@@ -323,14 +323,14 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
           const text =
             `การจองรถ "${b.resourceName}" (${formatBookingDateTime(b.startTime)} – ${formatBookingDateTime(
               b.endTime
-            )}) ได้รับการอนุมัติแล้ว` +
+            )}) ได้รับการจัดรถแล้ว` +
             (trip ? ` — รถที่จัดให้: ${trip.resourceName} คนขับ: ${trip.driverName || "-"}` : "");
           pushToast(text, "approved");
           // เก็บเข้า "กิจกรรมของฉัน" ด้วยเสมอ (เพิ่มภายหลังตามที่ขอ) — ไม่งั้น
           // ข้อความนี้จะหายไปพร้อม toast ใน 6 วินาทีถ้าพลาดดูตอนนั้น
           pushMyNotice(text);
         } else if (newlyApproved.length > 1) {
-          const text = `การจองรถของคุณได้รับการอนุมัติแล้ว ${newlyApproved.length} รายการ — ดูรายละเอียดที่หน้าจองรถ`;
+          const text = `การจองรถของคุณได้รับการจัดรถแล้ว ${newlyApproved.length} รายการ — ดูรายละเอียดที่หน้าจองรถ`;
           pushToast(text, "approved");
           pushMyNotice(text);
         }
@@ -346,11 +346,11 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
           const b = newlySplit[0];
           const text = `การจองรถ "${b.purpose || b.destination || formatBookingDateTime(b.startTime)}" (${formatBookingDateTime(
             b.startTime
-          )} – ${formatBookingDateTime(b.endTime)}) ถูกแยกออกจากใบสั่งงานเดินทางเดิม กลับเป็น "รออนุมัติ" แล้ว รอออกใบสั่งงานใหม่`;
+          )} – ${formatBookingDateTime(b.endTime)}) ถูกแยกออกจากใบสั่งงานเดินทางเดิม กลับเป็น "รอจัดรถ" แล้ว รอออกใบสั่งงานใหม่`;
           pushToast(text, "split");
           pushMyNotice(text);
         } else if (newlySplit.length > 1) {
-          const text = `การจองรถของคุณถูกแยกออกจากใบสั่งงานเดินทางเดิม ${newlySplit.length} รายการ — กลับเป็น "รออนุมัติ" แล้ว รอออกใบสั่งงานใหม่`;
+          const text = `การจองรถของคุณถูกแยกออกจากใบสั่งงานเดินทางเดิม ${newlySplit.length} รายการ — กลับเป็น "รอจัดรถ" แล้ว รอออกใบสั่งงานใหม่`;
           pushToast(text, "split");
           pushMyNotice(text);
         }
@@ -453,7 +453,7 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
     // ประกาศ BOOKING_NOTICE_EVENT ใน lib/booking.ts) เพื่อให้การอนุมัติผ่าน
     // ป็อปอัปนี้เองก็ขึ้นในรายการเดียวกันเช่นกัน ไม่ต้องรอ event จากที่อื่น
     pushRecent(
-      `อนุมัติสำเร็จ (${tripOrder.resourceName} · คนขับ: ${tripOrder.driverName || "—"}) — รายการจองที่เกี่ยวข้อง ${updatedBookings.length.toLocaleString("th-TH")} รายการปรับสถานะเป็น "อนุญาต" ในปฏิทินแล้ว`
+      `จัดรถสำเร็จ (${tripOrder.resourceName} · คนขับ: ${tripOrder.driverName || "—"}) — รายการจองที่เกี่ยวข้อง ${updatedBookings.length.toLocaleString("th-TH")} รายการปรับสถานะเป็น "อนุญาต" ในปฏิทินแล้ว`
     );
     // แจ้งหน้าจองรถ (BookingDashboard.tsx) ที่อาจเปิดอยู่พร้อมกัน (เช่น
     // อนุมัติจากป็อปอัปนี้ขณะดูปฏิทินอยู่) ให้รีเฟรชข้อมูลสดใหม่ทันที — ไม่งั้น
@@ -568,14 +568,14 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
               {enabled && (
                 <>
                   <div className="flex items-center justify-between px-4 pb-1.5 pt-2.5">
-                    <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">รถรออนุมัติ</span>
+                    <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">รถรอจัดรถ</span>
                     <span className="text-xs text-zinc-400 dark:text-zinc-500">{pending.length} รายการ</span>
                   </div>
                   {actionError && <p className="px-4 py-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>}
                   <div className="max-h-[22rem] overflow-y-auto p-2">
                     {pending.length === 0 ? (
                       <p className="px-3 py-6 text-center text-sm text-zinc-400 dark:text-zinc-500">
-                        ไม่มีรายการรออนุมัติ
+                        ไม่มีรายการรอจัดรถ
                       </p>
                     ) : (
                       <ul className="space-y-2">
@@ -611,7 +611,7 @@ export default function NotificationBell({ enabled, username }: { enabled: boole
                                 ) : (
                                   <XIcon size={12} strokeWidth={2} aria-hidden="true" />
                                 )}
-                                ไม่อนุมัติ
+                                ปฏิเสธคำขอ
                               </button>
                             </div>
                           </li>
