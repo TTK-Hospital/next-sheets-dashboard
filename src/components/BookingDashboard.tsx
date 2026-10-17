@@ -349,6 +349,51 @@ export default function BookingDashboard({
     return () => window.removeEventListener(TRIP_ORDER_CHANGED_EVENT, refreshData);
   }, [type, refreshData]);
 
+  // รีเฟรชข้อมูลหน้านี้เองทุก BOOKING_POLL_INTERVAL_MS โดยไม่ต้องกดรีเฟรช —
+  // ตามที่ขอ "อยากให้สถานะที่มีการอนุมัติหรือสถานะที่ฝ่ายบริหารจัดรถ มันแสดงให้
+  // ผู้ใช้หรือผู้จองเห็นได้ทันทีโดยไม่ต้องกดรีเฟรช" ใช้ refreshData ตัวเดียวกับ
+  // ด้านบน (ไม่ใช่ endpoint ใหม่) — เหตุการณ์ TRIP_ORDER_CHANGED_EVENT ด้านบน
+  // ครอบคลุมแค่กรณีจัดรถ/อนุมัติ "ผ่านกระดิ่งแจ้งเตือนของอีกแท็บ/อีกบัญชี" เท่า
+  // นั้น แต่สถานะที่เปลี่ยนจากฝั่งอื่นล้วนๆ (เช่น ผอ. กดอนุมัติในหน้า /director
+  // คนละอุปกรณ์ หรือบัญชีอื่นแก้ไข/ยกเลิกการจอง) ไม่มี event ให้ฟังเลย — ต้อง
+  // poll จริงๆ ถึงจะเห็น ("ไม่มี websocket/push ดูคอมเมนต์หัวไฟล์
+  // NotificationBell.tsx — แอปนี้แก้ไขปัญหานี้ด้วยการ poll ถี่ขึ้นเสมอ")
+  //
+  // "ไม่สิ้นเปลืองทรัพยากร" ตามที่ขอ — หยุด poll ทันทีเมื่อแท็บนี้ไม่ได้อยู่
+  // หน้าจอ/ถูกซ่อนไว้ (document.hidden ผ่าน visibilitychange) ไม่ต้องเสียรอบ
+  // ไปกับแท็บที่ไม่มีใครดูอยู่ แล้วรีเฟรช 1 ครั้งทันทีตอนกลับมาเปิดแท็บอีกครั้ง
+  // ก่อนเริ่มนับรอบใหม่ ให้เห็นข้อมูลล่าสุดโดยไม่ต้องรอรอบ poll ถัดไป.
+  useEffect(() => {
+    const BOOKING_POLL_INTERVAL_MS = 10_000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    function start() {
+      if (intervalId) return;
+      intervalId = setInterval(refreshData, BOOKING_POLL_INTERVAL_MS);
+    }
+    function stop() {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    }
+    function onVisibilityChange() {
+      if (document.hidden) {
+        stop();
+      } else {
+        refreshData();
+        start();
+      }
+    }
+
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refreshData]);
+
   function handleResourceSaved(resource: BookingResource) {
     setData((prev) => {
       if (isError(prev)) return prev;

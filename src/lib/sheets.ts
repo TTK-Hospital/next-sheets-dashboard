@@ -3077,6 +3077,13 @@ export interface DirectorTripRequestItem {
   bookedByDisplayName: string;
   department: string;
   companions: string;
+  /** เพิ่มเข้ามาทีหลังสำหรับมุมมอง "ปฏิทิน" ของหน้า /director (ดู
+   * getDirectorAllTrips ด้านล่าง) — getDirectorPendingTrips เดิมไม่จำเป็นต้อง
+   * ใช้ (ทุกแถวที่คัดมาเป็น "pending" อยู่แล้วโดยนิยาม) แต่เติมมาด้วยเพื่อให้
+   * DirectorTripRequestItem เป็น type เดียวใช้ร่วมกันได้ทั้งสองฟังก์ชัน ไม่ต้อง
+   * มี type คู่ขนาน. */
+  directorApprovalStatus: DirectorApprovalStatus;
+  directorNote: string;
 }
 
 export interface DirectorTripItem {
@@ -3131,6 +3138,64 @@ export async function getDirectorPendingTrips(): Promise<DirectorTripItem[]> {
       bookedByDisplayName: b.bookedByDisplayName,
       department: b.department,
       companions: b.companions,
+      directorApprovalStatus: b.directorApprovalStatus,
+      directorNote: b.directorNote,
+    });
+  }
+
+  return Array.from(groups.values()).sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+/** เหมือน getDirectorPendingTrips ด้านบนทุกประการ ต่างกันแค่เงื่อนไขคัดแถว —
+ * เอาทุกคำขอที่ "ผ่านมือ ผอ. มาแล้วอย่างน้อยหนึ่งครั้ง" (directorApprovalStatus
+ * ไม่ใช่ "") ไม่ใช่แค่ที่ยัง "pending" อยู่ ใช้สำหรับมุมมอง "ปฏิทิน" ของหน้า
+ * /director (ตามที่ขอเพิ่มภายหลัง "อยากให้แสดงเป็นรูปแบบปฎิทิน ... จะได้เห็น
+ * รายการที่เคยทำการอนุมัติไปแล้วได้ด้วย") ที่ต้องเห็นทั้งรายการที่รออยู่และที่
+ * ตัดสินใจไปแล้ว (อนุมัติ/ไม่อนุมัติ) เพื่อให้เห็นภาพรวมทั้งเดือน ไม่ใช่แค่คิวที่
+ * ต้องทำต่อ — รายการที่ถูก "ตีกลับ" แล้วไม่ติดเงื่อนไขนี้อีกต่อไปโดยธรรมชาติ
+ * (returnTripToDispatch เซ็ต directorApprovalStatus กลับเป็น "" และยุบ
+ * TripOrder ทิ้งไปเลย — ดูคอมเมนต์ที่ฟังก์ชันนั้น) จึงไม่โผล่ซ้ำเป็น "ประวัติ"
+ * ที่นี่ ถูกต้องแล้วเพราะมันกลับไปเป็นคำขอ "รอจัดรถ" ธรรมดาที่ฝ่ายบริหารต้องจัด
+ * รถใหม่ ไม่ใช่เรื่องของ ผอ. อีกต่อไปจนกว่าจะถูกจัดรถใหม่. ยกเลิกไปแล้วก็ตัดออก
+ * เหมือนกัน (isBookingCancelled) ด้วยเหตุผลเดียวกับด้านบน — ไม่มีประโยชน์ให้ ผอ.
+ * เห็นคำขอที่ถูกยกเลิกไปแล้ว. */
+export async function getDirectorAllTrips(): Promise<DirectorTripItem[]> {
+  const [bookings, tripOrders, resources] = await Promise.all([
+    getBookings(),
+    getTripOrders(),
+    getBookingResources(),
+  ]);
+  const tripOrderById = new Map(tripOrders.map((t) => [t.tripOrderId, t]));
+  const resourceByName = new Map(resources.map((r) => [r.name, r]));
+
+  const groups = new Map<string, DirectorTripItem>();
+  for (const b of bookings) {
+    if (b.directorApprovalStatus === "" || isBookingCancelled(b)) continue;
+    const trip = tripOrderById.get(b.tripOrderId);
+    let group = groups.get(b.tripOrderId);
+    if (!group) {
+      const resourceName = trip?.resourceName || b.resourceName;
+      group = {
+        tripOrderId: b.tripOrderId,
+        startTime: trip?.startTime || b.startTime,
+        endTime: trip?.endTime || b.endTime,
+        resourceName,
+        resourceImageDataUrl: resourceByName.get(resourceName)?.imageDataUrl || "",
+        driverName: trip?.driverName || "",
+        requests: [],
+      };
+      groups.set(b.tripOrderId, group);
+    }
+    group.requests.push({
+      bookingId: b.bookingId,
+      purpose: b.purpose,
+      destination: b.destination,
+      participants: b.participants,
+      bookedByDisplayName: b.bookedByDisplayName,
+      department: b.department,
+      companions: b.companions,
+      directorApprovalStatus: b.directorApprovalStatus,
+      directorNote: b.directorNote,
     });
   }
 

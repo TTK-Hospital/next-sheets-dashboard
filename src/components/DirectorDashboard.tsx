@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
+  Calendar as CalendarIcon,
   Car,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  List as ListIcon,
   Loader2,
   LogOut,
   RefreshCw,
@@ -57,6 +61,48 @@ function todayDateKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+// --- Helpers เฉพาะมุมมอง "ปฏิทิน" (DirectorCalendarView ด้านล่าง) ---
+// คัดลอกแนวทางเดียวกับ monthGrid/dateKeyFromDate/startOfMonth ใน
+// BookingCalendar.tsx (ก๊อปมาแทนที่จะ export ใช้ร่วมกัน — ไฟล์นี้แยกอิสระจาก
+// /booking โดยตั้งใจอยู่แล้ว ดูคอมเมนต์หัวไฟล์ และเป็นธรรมเนียมเดิมของโปรเจกต์
+// นี้ที่ยอมให้โค้ดเล็กๆ ซ้ำกันได้) ไม่จำเป็นต้องรองรับเที่ยวที่ข้ามเที่ยงคืน
+// (ไปวันหนึ่งกลับอีกวัน) ซ้อนหลายวันในช่องปฏิทินแบบที่ BookingCalendar ทำกับการ
+// จองทั่วไป — ใช้แค่วันที่ของ startTime (เวลาออกเดินทาง) จุดเดียวต่อเที่ยว ตรง
+// กับที่ dayGroups ของมุมมอง "รายการ" ด้านบนทำอยู่แล้วทุกประการ
+function dateKeyFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function monthGrid(monthCursor: Date): Date[] {
+  const year = monthCursor.getFullYear();
+  const month = monthCursor.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const gridStart = new Date(year, month, 1 - firstOfMonth.getDay());
+  const days: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+/** สถานะโดยรวมของหนึ่งใบสั่งงาน (กลุ่มคำขอ) สำหรับมุมมองปฏิทิน — ทุกคำขอใน
+ * กลุ่มเดียวกันถูกอนุมัติ/ไม่อนุมัติพร้อมกันเสมอผ่าน UI นี้ (submitDecision ส่ง
+ * bookingIds ของทั้งกลุ่มไปด้วยกันเป็นก้อนเดียว) จึงใช้สถานะของคำขอแรกเป็น
+ * ตัวแทนทั้งกลุ่มได้อย่างปลอดภัย. */
+function tripGroupStatus(trip: DirectorTripItem): "pending" | "approved" | "rejected" {
+  const s = trip.requests[0]?.directorApprovalStatus;
+  return s === "approved" || s === "rejected" ? s : "pending";
+}
+
 /**
  * หน้า /director ทั้งหมด (ล็อกอิน + รีเซ็ตรหัสผ่าน + รายการรออนุมัติ) อยู่ใน
  * คอมโพเนนต์เดียวนี้โดยตั้งใจ — ตามที่ขอ "เมนูตัวเลือกน้อยๆ เข้าใจง่าย" ไม่มี
@@ -80,6 +126,34 @@ export default function DirectorDashboard() {
   const [view, setView] = useState<{ screen: Screen; trips: DirectorTripItem[] }>({ screen: "checking", trips: [] });
   const screen = view.screen;
   const trips = view.trips;
+  // มุมมอง "รายการ" (เดิม, ค่าเริ่มต้น) vs "ปฏิทิน" (ใหม่ — ตามที่ขอ "อยากให้
+  // แสดงเป็นรูปแบบปฎิทิน ... ทำเป็นรูปแบบให้ผอ.ท่านเลือกใช้ก็ได้ครับแบบเดิมก็
+  // เก็บไว้") — จำค่าที่เลือกไว้ใน localStorage (เฉพาะเบราว์เซอร์/อุปกรณ์นี้) ให้
+  // ไม่ต้องสลับใหม่ทุกครั้งที่เข้าหน้านี้ ครอบ try/catch เพราะ localStorage อาจ
+  // ใช้ไม่ได้บางสภาพแวดล้อม (private mode ฯลฯ) — ไม่ใช่ข้อมูลสำคัญ พลาดได้ไม่
+  // กระทบการทำงานหลัก แค่จำค่าที่เลือกไม่ได้เฉยๆ
+  const [viewMode, setViewModeState] = useState<"list" | "calendar">(() => {
+    try {
+      return localStorage.getItem("director_view_mode") === "calendar" ? "calendar" : "list";
+    } catch {
+      return "list";
+    }
+  });
+  function setViewMode(mode: "list" | "calendar") {
+    setViewModeState(mode);
+    try {
+      localStorage.setItem("director_view_mode", mode);
+    } catch {
+      // best-effort — ดูคอมเมนต์ที่ useState ด้านบน
+    }
+  }
+  // ทุกรายการที่ "ผ่านมือ ผอ. มาแล้ว" (รออยู่ + อนุมัติ/ไม่อนุมัติไปแล้ว) — ใช้
+  // เฉพาะมุมมองปฏิทินเท่านั้น (ดู getDirectorAllTrips ใน lib/sheets.ts) โหลด/
+  // poll เฉพาะตอนเปิดมุมมองนี้อยู่ ไม่ให้เสียทรัพยากรโหลดข้อมูลที่ไม่ได้ใช้ตอน
+  // อยู่มุมมอง "รายการ" — แยก state ออกจาก `trips` (คิวงานที่ต้องทำ, ใช้โดย
+  // มุมมองรายการ + แถบเลือกหลายรายการด้านล่าง) โดยเจตนา เพราะคนละความหมายกัน
+  // (คิวงานที่ต้องทำ vs ภาพรวมทั้งหมดรวมประวัติ)
+  const [allTrips, setAllTrips] = useState<DirectorTripItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [decided, setDecided] = useState<Map<string, DecidedTone>>(new Map());
   const [error, setError] = useState("");
@@ -97,7 +171,7 @@ export default function DirectorDashboard() {
   // สำหรับทั้งสองกรณี
   const [commentPrompt, setCommentPrompt] = useState<{
     kind: "reject" | "return";
-    tripOrderIds: string[];
+    groups: DirectorTripItem[];
     text: string;
   } | null>(null);
 
@@ -124,6 +198,27 @@ export default function DirectorDashboard() {
     }
   }, []);
 
+  // เหมือน loadTrips ด้านบนทุกประการ ต่างกันแค่ endpoint (ดึง "ทุกรายการที่
+  // ผ่านมือ ผอ." ไม่ใช่แค่ที่ยังรออยู่) และไม่แตะ `screen`/401-redirect เลย —
+  // ใช้แค่ตอนมุมมองปฏิทินเปิดอยู่ (ดู effect ด้านล่าง) ซึ่งแปลว่า session ยัง
+  // ใช้ได้แน่ๆ อยู่แล้ว (ไม่งั้นคงเด้งไปหน้า login จาก loadTrips ไปก่อนแล้ว) จึง
+  // ไม่ต้องเช็ค 401 ซ้ำอีกชั้น — ปล่อยให้ error เงียบๆ ถ้าพลาด (best-effort
+  // เหมือน poll อื่นๆ ในแอปนี้)
+  const loadAllTrips = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setRefreshing(true);
+    try {
+      const res = await fetch("/api/director/trips/all", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data?.trips)) return;
+      setAllTrips(data.trips as DirectorTripItem[]);
+    } catch {
+      // best-effort
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   // เช็ค session ตอนเปิดหน้าครั้งแรก แล้วตั้ง interval รีเฟรชเป็นระยะต่อเนื่อง
   // ไปในตัว (เงียบๆ ไม่โชว์ spinner ทับรายการเดิมระหว่างอ่าน) — ตั้งใจไม่เรียก
   // loadTrips() ตรงๆ ในตัว effect เอง (เรียกผ่าน setTimeout(loadTrips, 0)
@@ -138,6 +233,20 @@ export default function DirectorDashboard() {
       clearInterval(id);
     };
   }, [loadTrips]);
+
+  // โหลด/poll "ทุกรายการ" เฉพาะตอนมุมมองปฏิทินเปิดอยู่จริงๆ เท่านั้น (ตามที่ขอ
+  // เรื่องไม่สิ้นเปลืองทรัพยากรของมุมมองปฏิทินฝั่งผู้จอง — ใช้หลักการเดียวกัน
+  // ที่นี่: ไม่ดึงข้อมูลที่หน้าจอไม่ได้แสดงอยู่) สลับกลับไปมุมมองรายการ หรือยัง
+  // ไม่ล็อกอิน ก็หยุด poll ไปเอง
+  useEffect(() => {
+    if (screen !== "ready" || viewMode !== "calendar") return;
+    const initial = setTimeout(loadAllTrips, 0);
+    const id = setInterval(() => loadAllTrips({ silent: true }), POLL_INTERVAL_MS);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(id);
+    };
+  }, [screen, viewMode, loadAllTrips]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -216,11 +325,29 @@ export default function DirectorDashboard() {
     }, DECIDED_CARD_LINGER_MS);
   }
 
-  async function submitDecision(tripOrderIds: string[], decision: "approved" | "rejected", comment: string = "") {
-    if (tripOrderIds.length === 0) return;
-    const groups = trips.filter((t) => tripOrderIds.includes(t.tripOrderId));
+  // อัปเดตสถานะของกลุ่มที่ตัดสินใจแล้วใน allTrips (มุมมองปฏิทิน) ทันที โดยไม่
+  // ต้องรอรอบ poll ถัดไป — เฉพาะ "อนุมัติ/ไม่อนุมัติ" (ใบสั่งงานยังอยู่เหมือนเดิม
+  // แค่เปลี่ยนสถานะ) ส่วน "ตีกลับ" ดูฟังก์ชันถัดไปด้านล่าง (ยุบใบสั่งงานทิ้งไป
+  // เลย ไม่ใช่แค่เปลี่ยนสถานะ)
+  function applyDecisionToAllTrips(tripOrderIds: string[], decision: "approved" | "rejected", comment: string) {
+    setAllTrips((prev) =>
+      prev.map((t) =>
+        tripOrderIds.includes(t.tripOrderId)
+          ? { ...t, requests: t.requests.map((r) => ({ ...r, directorApprovalStatus: decision, directorNote: comment })) }
+          : t
+      )
+    );
+  }
+
+  // รับ "กลุ่ม" (DirectorTripItem) ตรงๆ แทน tripOrderId เฉยๆ — ใช้ร่วมกันได้
+  // ทั้งมุมมองรายการ (กลุ่มมาจาก `trips`) และมุมมองปฏิทิน (กลุ่มมาจาก
+  // `allTrips`, ซึ่งไม่ได้อยู่ใน `trips` เสมอไปถ้าเคยถูกตัดสินใจไปแล้วก่อนหน้า
+  // — แก้บั๊กเดิมที่ lookup จาก `trips` ตรงๆ ข้างในฟังก์ชันนี้ ซึ่งใช้ไม่ได้กับ
+  // กลุ่มที่มาจากมุมมองปฏิทิน)
+  async function submitDecision(groups: DirectorTripItem[], decision: "approved" | "rejected", comment: string = "") {
     const bookingIds = groups.flatMap((g) => g.requests.map((r) => r.bookingId));
     if (bookingIds.length === 0) return;
+    const tripOrderIds = groups.map((g) => g.tripOrderId);
     setError("");
     setBusy(true);
     try {
@@ -232,6 +359,7 @@ export default function DirectorDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
       markDecided(tripOrderIds, decision === "approved" ? "approved" : "rejected");
+      applyDecisionToAllTrips(tripOrderIds, decision, comment);
       setSelected((prev) => {
         const next = new Set(prev);
         tripOrderIds.forEach((id) => next.delete(id));
@@ -249,8 +377,9 @@ export default function DirectorDashboard() {
     }
   }
 
-  async function submitReturn(tripOrderIds: string[], comment: string) {
-    if (tripOrderIds.length === 0) return;
+  async function submitReturn(groups: DirectorTripItem[], comment: string) {
+    if (groups.length === 0) return;
+    const tripOrderIds = groups.map((g) => g.tripOrderId);
     setError("");
     setBusy(true);
     try {
@@ -266,6 +395,15 @@ export default function DirectorDashboard() {
         okCount += 1;
       }
       markDecided(tripOrderIds, "returned");
+      // ตีกลับยุบใบสั่งงานทิ้งไปเลย (กลับไปเป็นคำขอ "รอจัดรถ" ธรรมดา ไม่ใช่
+      // เรื่องของ ผอ. อีกต่อไป — ดู returnTripToDispatch ใน lib/sheets.ts) จึงต้อง
+      // ลบออกจาก allTrips ด้วย (ไม่ใช่แค่เปลี่ยนสถานะเหมือน applyDecisionToAllTrips)
+      // — หน่วงเวลาลบเท่ากับ DECIDED_CARD_LINGER_MS เหมือน markDecided ด้านบน
+      // ให้มุมมองปฏิทินได้เห็นป้าย "ตีกลับแล้ว" วาบขึ้นก่อนช่องวัน/การ์ดจะหายไป
+      // เฉยๆ ทันที ไม่ใช่แค่หายวับไปโดยไม่มีคำอธิบาย
+      setTimeout(() => {
+        setAllTrips((prev) => prev.filter((t) => !tripOrderIds.includes(t.tripOrderId)));
+      }, DECIDED_CARD_LINGER_MS);
       setSelected((prev) => {
         const next = new Set(prev);
         tripOrderIds.forEach((id) => next.delete(id));
@@ -279,23 +417,23 @@ export default function DirectorDashboard() {
     }
   }
 
-  function openCommentPrompt(kind: "reject" | "return", tripOrderIds: string[]) {
+  function openCommentPrompt(kind: "reject" | "return", groups: DirectorTripItem[]) {
     setError("");
-    setCommentPrompt({ kind, tripOrderIds, text: "" });
+    setCommentPrompt({ kind, groups, text: "" });
   }
 
   async function confirmCommentPrompt() {
     if (!commentPrompt) return;
-    const { kind, tripOrderIds, text } = commentPrompt;
+    const { kind, groups, text } = commentPrompt;
     if (kind === "return" && !text.trim()) {
       setError("กรุณาระบุข้อความถึงฝ่ายบริหารผู้จัดรถก่อนตีกลับ");
       return;
     }
     setCommentPrompt(null);
     if (kind === "reject") {
-      await submitDecision(tripOrderIds, "rejected", text.trim());
+      await submitDecision(groups, "rejected", text.trim());
     } else {
-      await submitReturn(tripOrderIds, text.trim());
+      await submitReturn(groups, text.trim());
     }
   }
 
@@ -394,7 +532,7 @@ export default function DirectorDashboard() {
         </div>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => loadTrips()}
+            onClick={() => (viewMode === "calendar" ? loadAllTrips() : loadTrips())}
             disabled={refreshing}
             className="rounded-full p-2.5 text-slate-500 transition hover:bg-white hover:shadow-sm disabled:opacity-50"
             aria-label="รีเฟรช"
@@ -411,6 +549,33 @@ export default function DirectorDashboard() {
         </div>
       </header>
 
+      {/* สลับมุมมอง "รายการ" (เดิม, คิวงานที่ต้องทำ) / "ปฏิทิน" (ใหม่ — ภาพรวม
+          ทั้งเดือน รวมรายการที่ตัดสินใจไปแล้ว) — ตามที่ขอ "ทำเป็นรูปแบบให้ผอ.
+          ท่านเลือกใช้ก็ได้ครับแบบเดิมก็เก็บไว้" ค่าที่เลือกจำไว้ใน localStorage
+          (ดู setViewMode ด้านบน) */}
+      <div className="mb-4 flex gap-1 rounded-xl bg-white/70 p-1 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setViewMode("list")}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition ${
+            viewMode === "list" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"
+          }`}
+        >
+          <ListIcon className="h-4 w-4" />
+          รายการ
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("calendar")}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition ${
+            viewMode === "calendar" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"
+          }`}
+        >
+          <CalendarIcon className="h-4 w-4" />
+          ปฏิทิน
+        </button>
+      </div>
+
       {notice && (
         <div className="mb-3 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-emerald-900/10">
           {notice}
@@ -422,54 +587,65 @@ export default function DirectorDashboard() {
         </div>
       )}
 
-      {trips.length === 0 ? (
-        <div className="mt-20 flex flex-col items-center gap-2 text-center text-slate-400">
-          <Check className="h-10 w-10 text-slate-300" />
-          <p>ไม่มีรายการรออนุมัติในขณะนี้</p>
-        </div>
-      ) : (
-        <>
-          <label className="mb-4 flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm">
-            <input
-              type="checkbox"
-              className="h-5 w-5 accent-indigo-600"
-              checked={allSelected}
-              onChange={toggleSelectAll}
-            />
-            เลือกทั้งหมด ({trips.length} รายการ)
-          </label>
-
-          <div className="space-y-6">
-            {dayGroups.map(([dateKey, dayTrips]) => (
-              <section key={dateKey}>
-                <div className="mb-2 flex items-center gap-2 px-1">
-                  <h2 className="text-sm font-bold text-slate-700">{formatThaiDateHeader(dateKey)}</h2>
-                  {dateKey === today && (
-                    <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-                      วันนี้
-                    </span>
-                  )}
-                  <span className="text-xs text-slate-400">({dayTrips.length} เที่ยว)</span>
-                </div>
-                <ul className="space-y-3">
-                  {dayTrips.map((trip) => (
-                    <TripCard
-                      key={trip.tripOrderId}
-                      trip={trip}
-                      selected={selected.has(trip.tripOrderId)}
-                      decided={decided.get(trip.tripOrderId)}
-                      onToggle={() => toggleSelected(trip.tripOrderId)}
-                      onApprove={() => submitDecision([trip.tripOrderId], "approved")}
-                      onReject={() => openCommentPrompt("reject", [trip.tripOrderId])}
-                      onReturn={() => openCommentPrompt("return", [trip.tripOrderId])}
-                      busy={busy}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ))}
+      {viewMode === "list" ? (
+        trips.length === 0 ? (
+          <div className="mt-20 flex flex-col items-center gap-2 text-center text-slate-400">
+            <Check className="h-10 w-10 text-slate-300" />
+            <p>ไม่มีรายการรออนุมัติในขณะนี้</p>
           </div>
-        </>
+        ) : (
+          <>
+            <label className="mb-4 flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm">
+              <input
+                type="checkbox"
+                className="h-5 w-5 accent-indigo-600"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+              />
+              เลือกทั้งหมด ({trips.length} รายการ)
+            </label>
+
+            <div className="space-y-6">
+              {dayGroups.map(([dateKey, dayTrips]) => (
+                <section key={dateKey}>
+                  <div className="mb-2 flex items-center gap-2 px-1">
+                    <h2 className="text-sm font-bold text-slate-700">{formatThaiDateHeader(dateKey)}</h2>
+                    {dateKey === today && (
+                      <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                        วันนี้
+                      </span>
+                    )}
+                    <span className="text-xs text-slate-400">({dayTrips.length} เที่ยว)</span>
+                  </div>
+                  <ul className="space-y-3">
+                    {dayTrips.map((trip) => (
+                      <TripCard
+                        key={trip.tripOrderId}
+                        trip={trip}
+                        selected={selected.has(trip.tripOrderId)}
+                        decided={decided.get(trip.tripOrderId)}
+                        onToggle={() => toggleSelected(trip.tripOrderId)}
+                        onApprove={() => submitDecision([trip], "approved")}
+                        onReject={() => openCommentPrompt("reject", [trip])}
+                        onReturn={() => openCommentPrompt("return", [trip])}
+                        busy={busy}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </>
+        )
+      ) : (
+        <DirectorCalendarView
+          trips={allTrips}
+          decided={decided}
+          busy={busy}
+          onApprove={(groups) => submitDecision(groups, "approved")}
+          onReject={(groups) => openCommentPrompt("reject", groups)}
+          onReturn={(groups) => openCommentPrompt("return", groups)}
+        />
       )}
 
       {selected.size > 0 && (
@@ -477,7 +653,7 @@ export default function DirectorDashboard() {
           <div className="mx-auto flex max-w-2xl items-center gap-2">
             <span className="flex-1 text-sm font-medium text-slate-700">เลือกไว้ {selected.size} รายการ</span>
             <button
-              onClick={() => openCommentPrompt("reject", Array.from(selected))}
+              onClick={() => openCommentPrompt("reject", trips.filter((t) => selected.has(t.tripOrderId)))}
               disabled={busy}
               className="flex items-center gap-1 rounded-lg border border-rose-300 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
             >
@@ -485,7 +661,7 @@ export default function DirectorDashboard() {
               ไม่อนุมัติ
             </button>
             <button
-              onClick={() => openCommentPrompt("return", Array.from(selected))}
+              onClick={() => openCommentPrompt("return", trips.filter((t) => selected.has(t.tripOrderId)))}
               disabled={busy}
               className="flex items-center gap-1 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
             >
@@ -493,7 +669,7 @@ export default function DirectorDashboard() {
               ตีกลับ
             </button>
             <button
-              onClick={() => submitDecision(Array.from(selected), "approved")}
+              onClick={() => submitDecision(trips.filter((t) => selected.has(t.tripOrderId)), "approved")}
               disabled={busy}
               className="flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -507,7 +683,7 @@ export default function DirectorDashboard() {
       {commentPrompt && (
         <CommentModal
           kind={commentPrompt.kind}
-          count={commentPrompt.tripOrderIds.length}
+          count={commentPrompt.groups.length}
           text={commentPrompt.text}
           onChangeText={(text) => setCommentPrompt((p) => (p ? { ...p, text } : p))}
           busy={busy}
@@ -520,6 +696,372 @@ export default function DirectorDashboard() {
         />
       )}
     </main>
+  );
+}
+
+/**
+ * มุมมอง "ปฏิทิน" ของหน้า /director — ทางเลือกแสดงผลเพิ่มจากมุมมอง "รายการ"
+ * เดิม (ตามที่ขอ "อยากให้แสดงเป็นรูปแบบปฎิทิน เช่นเดียวกับของผู้ใช้งาน ...
+ * จะได้เห็นรายการที่เคยทำการอนุมัติไปแล้วได้ด้วย ทำเป็นรูปแบบให้ผอ.ท่านเลือกใช้
+ * ก็ได้ครับแบบเดิมก็เก็บไว้") ใช้ `trips` ที่ส่งมาเป็น allTrips จาก
+ * getDirectorAllTrips (ทุกรายการที่ผ่านมือ ผอ. มาแล้ว ไม่ใช่แค่ "pending"),
+ * ตรงนี้จึงเห็นทั้งที่รออยู่ (เหลือง) และที่ตัดสินใจไปแล้ว (เขียว/แดง) ต่างจาก
+ * มุมมองรายการที่เป็นคิวงานต้องทำล้วนๆ. ตัวตาราง/การนำทางเดือนก๊อปแนวทางเดียวกับ
+ * BookingCalendar.tsx (ดูคอมเมนต์ที่ monthGrid/dateKeyFromDate ด้านบนไฟล์) แต่
+ * ใช้สไตล์ indigo/slate การ์ดมือถือเดียวกับส่วนอื่นของหน้านี้ ไม่ใช่สไตล์
+ * zinc/dark-mode ของ /booking (หน้านี้ไม่มี dark mode เลยอยู่แล้ว).
+ */
+function DirectorCalendarView({
+  trips,
+  decided,
+  busy,
+  onApprove,
+  onReject,
+  onReturn,
+}: {
+  trips: DirectorTripItem[];
+  decided: Map<string, DecidedTone>;
+  busy: boolean;
+  onApprove: (groups: DirectorTripItem[]) => void;
+  onReject: (groups: DirectorTripItem[]) => void;
+  onReturn: (groups: DirectorTripItem[]) => void;
+}) {
+  const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const todayKey = todayDateKey();
+
+  const days = useMemo(() => monthGrid(monthCursor), [monthCursor]);
+
+  const tripsByDate = useMemo(() => {
+    const map = new Map<string, DirectorTripItem[]>();
+    for (const t of trips) {
+      const dateKey = splitBookingDateTime(t.startTime)?.dateKey;
+      if (!dateKey) continue;
+      const list = map.get(dateKey);
+      if (list) list.push(t);
+      else map.set(dateKey, [t]);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => (a.startTime < b.startTime ? -1 : 1));
+    }
+    return map;
+  }, [trips]);
+
+  const dayTrips = selectedDateKey ? tripsByDate.get(selectedDateKey) ?? [] : [];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2 rounded-xl bg-white/70 px-2 py-1.5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setMonthCursor((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+          aria-label="เดือนก่อนหน้า"
+          className="rounded-full p-2 text-slate-500 transition hover:bg-white"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-700">
+            {THAI_MONTHS[monthCursor.getMonth()]} {monthCursor.getFullYear() + 543}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMonthCursor(startOfMonth(new Date()))}
+            className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:bg-white"
+          >
+            วันนี้
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMonthCursor((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+          aria-label="เดือนถัดไป"
+          className="rounded-full p-2 text-slate-500 transition hover:bg-white"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* legend สีเล็กๆ บอกความหมายจุดในช่องวัน */}
+      <div className="flex flex-wrap items-center gap-3 px-1 text-[11px] text-slate-500">
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
+          รออนุมัติ
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+          อนุมัติแล้ว
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" />
+          ไม่อนุมัติ
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {THAI_WEEKDAYS.map((wd) => (
+          <div
+            key={wd}
+            className="border-b border-r border-slate-100 bg-slate-50 py-1.5 text-center text-[10px] font-medium text-slate-400 last:border-r-0"
+          >
+            {wd.replace("วัน", "")}
+          </div>
+        ))}
+        {days.map((day) => {
+          const key = dateKeyFromDate(day);
+          const inMonth = day.getMonth() === monthCursor.getMonth();
+          const list = tripsByDate.get(key) ?? [];
+          const isToday = key === todayKey;
+          return (
+            <button
+              type="button"
+              key={key}
+              onClick={() => list.length > 0 && setSelectedDateKey(key)}
+              disabled={list.length === 0}
+              className={`flex min-h-[3.75rem] flex-col items-center gap-1 border-b border-r border-slate-100 p-1 last:border-r-0 ${
+                inMonth ? "bg-white" : "bg-slate-50/60"
+              } ${list.length > 0 ? "cursor-pointer hover:bg-slate-50" : "cursor-default"}`}
+            >
+              <span
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
+                  isToday ? "bg-indigo-600 font-semibold text-white" : inMonth ? "text-slate-600" : "text-slate-300"
+                }`}
+              >
+                {day.getDate()}
+              </span>
+              {list.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-0.5">
+                  {list.slice(0, 4).map((t) => {
+                    const liveTone = decided.get(t.tripOrderId);
+                    const status = liveTone === "approved" || liveTone === "rejected" ? liveTone : tripGroupStatus(t);
+                    const dotClass =
+                      status === "approved" ? "bg-emerald-500" : status === "rejected" ? "bg-rose-500" : "bg-amber-500";
+                    return <span key={t.tripOrderId} className={`h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden="true" />;
+                  })}
+                  {list.length > 4 && <span className="text-[9px] text-slate-400">+{list.length - 4}</span>}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {trips.length === 0 && <p className="mt-4 text-center text-sm text-slate-400">ยังไม่มีรายการในเดือนนี้</p>}
+
+      {selectedDateKey && (
+        <CalendarDayModal
+          dateKey={selectedDateKey}
+          trips={dayTrips}
+          decided={decided}
+          busy={busy}
+          onApprove={onApprove}
+          onReject={onReject}
+          onReturn={onReturn}
+          onClose={() => setSelectedDateKey(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** หน้าต่างรายละเอียดวันของมุมมองปฏิทิน — คลิกวันที่มีเที่ยวรถใน
+ * DirectorCalendarView แล้วเปิดตัวนี้ แสดงทุกเที่ยวของวันนั้น (ทั้งที่รออยู่
+ * และที่ตัดสินใจไปแล้ว) ให้ยังอนุมัติ/ไม่อนุมัติ/ตีกลับได้ตรงนี้เลยถ้ายังรออยู่
+ * (ดู CalendarTripEntry ด้านล่าง) — ตั้งใจไม่ทำ overlay เต็มจอเหมือน CommentModal
+ * ให้ปิดด้วยการคลิกฉากหลังได้เหมือน DayDetailModal ของ BookingCalendar.tsx. */
+function CalendarDayModal({
+  dateKey,
+  trips,
+  decided,
+  busy,
+  onApprove,
+  onReject,
+  onReturn,
+  onClose,
+}: {
+  dateKey: string;
+  trips: DirectorTripItem[];
+  decided: Map<string, DecidedTone>;
+  busy: boolean;
+  onApprove: (groups: DirectorTripItem[]) => void;
+  onReject: (groups: DirectorTripItem[]) => void;
+  onReturn: (groups: DirectorTripItem[]) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 px-4 pb-4 pt-20 sm:items-center"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <h2 className="text-sm font-bold text-slate-800">{formatThaiDateHeader(dateKey)}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="ปิดหน้าต่าง"
+            className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <ul className="flex flex-col gap-3 overflow-y-auto px-4 py-4">
+          {trips.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-400">ไม่มีรายการในวันนี้</p>
+          ) : (
+            trips.map((trip) => (
+              <CalendarTripEntry
+                key={trip.tripOrderId}
+                trip={trip}
+                decided={decided.get(trip.tripOrderId)}
+                busy={busy}
+                onApprove={() => onApprove([trip])}
+                onReject={() => onReject([trip])}
+                onReturn={() => onReturn([trip])}
+              />
+            ))
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/** หนึ่งเที่ยวรถในหน้าต่างรายละเอียดวันของมุมมองปฏิทิน — ต่างจาก TripCard ของ
+ * มุมมองรายการตรงที่ต้องรองรับทั้งสถานะ "รออยู่" (มีปุ่มจัดการให้) และ "ตัดสินใจ
+ * ไปแล้ว" (แค่ป้ายสถานะ, ไม่มีปุ่ม — ข้อมูลนี้มาจาก directorApprovalStatus ที่
+ * เก็บไว้จริงในชีต ไม่ใช่แค่ local state เหมือน `decided` ของมุมมองรายการที่
+ * เป็นแค่ลูกเล่นสีก่อนรายการจะหลุดจากคิว) — ไม่มีช่องเลือกหลายรายการ (checkbox)
+ * เหมือน TripCard เพราะมุมมองปฏิทินเน้นดูภาพรวม/จัดการทีละวันละรายการพอ. */
+function CalendarTripEntry({
+  trip,
+  decided,
+  busy,
+  onApprove,
+  onReject,
+  onReturn,
+}: {
+  trip: DirectorTripItem;
+  decided?: DecidedTone;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onReturn: () => void;
+}) {
+  // `decided` (ลูกเล่นสีชั่วคราวหลังกดเมื่อกี้) มาก่อนสถานะที่เก็บจริงเสมอ ถ้ามี
+  // — ให้เห็นผลทันทีโดยไม่ต้องรอ allTrips อัปเดต (แม้จะอัปเดตเกือบพร้อมกันอยู่
+  // แล้วก็ตาม ดู applyDecisionToAllTrips)
+  const status = decided ?? tripGroupStatus(trip);
+  const isPending = status === "pending";
+  const note = trip.requests.find((r) => r.directorNote)?.directorNote;
+  const start = splitBookingDateTime(trip.startTime);
+  const end = splitBookingDateTime(trip.endTime);
+
+  const toneClass =
+    status === "approved"
+      ? "border-emerald-200 bg-emerald-50"
+      : status === "rejected"
+        ? "border-rose-200 bg-rose-50"
+        : status === "returned"
+          ? "border-amber-200 bg-amber-50"
+          : "border-slate-200 bg-white";
+  const badgeClass =
+    status === "approved"
+      ? "bg-emerald-100 text-emerald-700"
+      : status === "rejected"
+        ? "bg-rose-100 text-rose-700"
+        : "bg-amber-100 text-amber-700";
+  const badgeText =
+    status === "approved"
+      ? "อนุมัติแล้ว"
+      : status === "rejected"
+        ? "ไม่อนุมัติแล้ว"
+        : status === "returned"
+          ? "ตีกลับแล้ว"
+          : "รออนุมัติ";
+
+  return (
+    <li className={`rounded-xl border p-3 ${toneClass}`}>
+      <div className="flex items-start gap-3">
+        {trip.resourceImageDataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data: URL ขนาดเล็ก เหมือน TripCard ด้านบน
+          <img
+            src={trip.resourceImageDataUrl}
+            alt={trip.resourceName}
+            className="h-12 w-12 flex-shrink-0 rounded-lg object-cover"
+          />
+        ) : (
+          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-400">
+            <Car className="h-5 w-5" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900">{trip.resourceName || "(ยังไม่ระบุรถ)"}</p>
+          {trip.driverName && <p className="text-xs text-slate-500">คนขับ: {trip.driverName}</p>}
+          <p className="mt-0.5 text-xs text-slate-400">
+            {start?.time ?? "—"} – {end?.time ?? "—"}
+          </p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeClass}`}>{badgeText}</span>
+      </div>
+
+      <div className="mt-2 space-y-1.5">
+        {trip.requests.map((r) => (
+          <div key={r.bookingId} className="rounded-lg bg-white/70 px-2.5 py-1.5 text-xs text-slate-600">
+            <p className="font-medium text-slate-800">{r.purpose || "(ไม่ระบุวัตถุประสงค์)"}</p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-slate-500">
+              <span>
+                {r.bookedByDisplayName}
+                {r.department ? ` · ${r.department}` : ""}
+              </span>
+              {r.destination && <span>ไป {r.destination}</span>}
+              {r.participants > 0 && <span>{r.participants} คน</span>}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {note && (
+        <p className="mt-2 text-xs text-slate-500">
+          {status === "rejected" ? "เหตุผล: " : "หมายเหตุ: "}
+          {note}
+        </p>
+      )}
+
+      {isPending && (
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={onReject}
+            disabled={busy}
+            className="flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1.5 text-xs font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+          >
+            <X className="h-3.5 w-3.5" />
+            ไม่อนุมัติ
+          </button>
+          <button
+            type="button"
+            onClick={onReturn}
+            disabled={busy}
+            className="flex items-center gap-1 rounded-lg border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            ตีกลับ
+          </button>
+          <button
+            type="button"
+            onClick={onApprove}
+            disabled={busy}
+            className="ml-auto flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <Check className="h-3.5 w-3.5" />
+            อนุมัติ
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 
