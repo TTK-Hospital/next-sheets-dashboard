@@ -534,6 +534,41 @@ export function hasBookingStarted(booking: Pick<Booking, "startTime">): boolean 
   return nowAsBookingMillis() >= startMillis;
 }
 
+/** True once a car booking's dispatch/request details can no longer be
+ * changed by management/dispatch through any of the normal edit surfaces —
+ * editBookingByManagement, updateTripOrder, splitBookingFromTripOrder,
+ * returnTripToDispatch (all in lib/sheets.ts) — per the hospital's later
+ * explicit request: "รายการอนุมัติที่ได้ทำการอนุมัติไปแล้ว ไม่สามารถแก้ไขใดๆ
+ * ได้อีก และรายการที่ช่วงเวลามันผ่านช่วงเวลาการเดินทางหรือเริ่มเดินทางไปแล้ว
+ * ต้องไม่สามารถแก้ไขใดๆได้อีก". Two independent reasons either one locks it:
+ *
+ * 1. The director has already approved it (directorApprovalStatus ===
+ *    "approved") — a final decision, nothing about an approved trip stays
+ *    editable afterwards (reject/ตีกลับ already can't touch an approved
+ *    item either — both setDirectorDecision and returnTripToDispatch only
+ *    ever act on bookings still "pending" at the director layer, so this
+ *    case is mostly about blocking updateTripOrder/splitBookingFromTripOrder/
+ *    editBookingByManagement specifically).
+ *
+ * 2. Its own start date/time has already arrived/passed (hasBookingStarted
+ *    above) — a trip that's already underway or already happened is done,
+ *    same principle canCancelBooking already applies to cancellation.
+ *    Callers that have a more accurate "actual travel start" than the
+ *    original request (e.g. a TripOrder's own dispatched startTime, which
+ *    can differ from the booking's originally requested one) should pass
+ *    that instead of the booking's own startTime — hasBookingStarted takes
+ *    whatever `startTime` it's given structurally, so either works.
+ *
+ * Deliberately does NOT fold in isBookingCancelled — every call site above
+ * already has its own, differently-worded "already cancelled" check, kept
+ * separate because "cancelled" and "locked" read as different situations to
+ * the person seeing the error. */
+export function isBookingLockedFromEditing(
+  booking: Pick<Booking, "startTime" | "directorApprovalStatus">
+): boolean {
+  return booking.directorApprovalStatus === "approved" || hasBookingStarted(booking);
+}
+
 /** "2026-08-25T14:30" -> "25/08/2026 14:30" — display formatting shared by
  * the flat list (BookingDashboard) and the calendar view
  * (BookingCalendar), both of which show the exact same underlying data in
@@ -626,32 +661,46 @@ export function canCancelBooking(
   return booking.bookedByUsername === session.username || hasPermission(session, "cancelAnyBooking");
 }
 
-/** Who may review a pending car booking: any account with the superadmin
+/** Who may dispatch a pending car booking: any account with the superadmin
  * role — per the hospital's explicit choice, this is *not* narrowed to the
  * single bootstrap account the way canManageBookingResources is; every
  * superadmin (bootstrap or one created later through /manage/users) can
- * review car bookings, matching canCancelBooking's "any superadmin" reach
+ * dispatch car bookings, matching canCancelBooking's "any superadmin" reach
  * above. Room bookings never reach this check — they have no pending state
- * to review. Backed by hasPermission()'s "approveCarBooking" key — same
- * unchanged default (any superadmin), now also grantable per account.
+ * to review. Backed by hasPermission()'s "approveCarBooking" key (name kept
+ * for backward compatibility with every account's existing permission
+ * data — see PERMISSION_LABELS in lib/permissions.ts for the user-facing
+ * label, which no longer says "approve") — same unchanged default (any
+ * superadmin), now also grantable per account.
  *
- * Gates three distinct actions now, all still "management handling a car
- * booking": rejecting a pending one outright (PATCH
- * /api/booking/bookings/[bookingId] with approvalStatus), *approving* one
- * by dispatching it — creating a TripOrder that assigns a real
- * car/driver/time to it, alone or combined with other pending requests
- * (POST /api/booking/trip-orders) — and editing an already-issued
- * TripOrder's own car/driver/time/notes afterwards (PATCH
- * /api/booking/trip-orders/[tripOrderId]). See TripOrder's doc comment
- * above for why *approving* is a dispatch record rather than a plain status
- * toggle.
+ * Gates two distinct actions now, both still "management handling a car
+ * booking": dispatching a pending one — creating a TripOrder that assigns
+ * a real car/driver/time to it, alone or combined with other pending
+ * requests (POST /api/booking/trip-orders) — and editing/splitting an
+ * already-issued TripOrder's own car/driver/time/notes/covered-bookings
+ * afterwards (PATCH /api/booking/trip-orders/[tripOrderId]). See
+ * TripOrder's doc comment above for why dispatching is a record rather
+ * than a plain status toggle.
+ *
+ * This used to also gate rejecting a pending car booking outright (PATCH
+ * /api/booking/bookings/[bookingId] with approvalStatus: "rejected") —
+ * removed per the hospital's later explicit request ("ด้วยความที่ผู้อนุมัติ
+ * รถมีเพียงผอ. ดังนั้น เดิมที่ให้ฝ่ายบริหารผู้จัดรถมีสิทธิ ไม่อนุมัติ ต้องเอา
+ * [ออก]"): only the director may reject a car booking now, and only after
+ * it's been dispatched (see setDirectorDecision in lib/sheets.ts). An
+ * account with this key can therefore only dispatch a pending request or
+ * leave it alone — never reject one outright — and once the director has
+ * approved it, or its travel time has arrived, this key can no longer
+ * change anything about it either (see isBookingLockedFromEditing above,
+ * enforced in updateTripOrder/splitBookingFromTripOrder/
+ * returnTripToDispatch in lib/sheets.ts).
  *
  * Editing a *booking's* own narrow set of fields (purpose/destination/
  * participants/contactPhone/companions) used to be bundled into this same
  * key too — split out into its own canEditBookingByManagement below (per
  * the hospital's later, explicit request to be able to grant/revoke that
- * specifically for one superadmin account without touching its approve/
- * reject/dispatch rights) — see that function for the rest of this story. */
+ * specifically for one superadmin account without touching its dispatch
+ * rights) — see that function for the rest of this story. */
 export function canApproveCarBooking(session: PermissionSession): boolean {
   return hasPermission(session, "approveCarBooking");
 }

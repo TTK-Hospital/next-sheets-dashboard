@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { canApproveCarBooking, canCancelBooking, canEditBookingByManagement, formatBookingDateTime } from "@/lib/booking";
-import {
-  appendEditLog,
-  cancelBooking,
-  editBookingByManagement,
-  getBookings,
-  getTripOrders,
-  rejectCarBooking,
-} from "@/lib/sheets";
+import { canCancelBooking, canEditBookingByManagement, formatBookingDateTime } from "@/lib/booking";
+import { appendEditLog, cancelBooking, editBookingByManagement, getBookings, getTripOrders } from "@/lib/sheets";
 import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
 
 export const dynamic = "force-dynamic";
@@ -96,12 +89,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   }
 }
 
-function readApprovalPayload(body: unknown): "approved" | "rejected" | null {
-  if (!body || typeof body !== "object") return null;
-  const v = (body as Record<string, unknown>).approvalStatus;
-  return v === "approved" || v === "rejected" ? v : null;
-}
-
 interface BookingEditPayload {
   purpose?: string;
   destination?: string;
@@ -146,31 +133,28 @@ function readEditPayload(body: unknown): BookingEditPayload | null {
   return Object.keys(result).length > 0 ? result : null;
 }
 
-/** Two distinct things a superadmin/management account can PATCH a booking
- * for now — each gated by its own permission key in lib/permissions.ts
- * (split apart per a later, explicit hospital request — see
- * canEditBookingByManagement's doc comment in lib/booking.ts for why),
- * neither narrowed to the bootstrap account only:
+/** One thing a superadmin/management account can PATCH a booking for now —
+ * `{ edit: { purpose?, destination?, participants?, contactPhone?,
+ * companions? } }`, correcting one or more of that fixed, narrow set of
+ * fields on the booking itself, gated by canEditBookingByManagement. This
+ * is the one deliberate, later-added exception to "the original request is
+ * never edited": the hospital explicitly asked for it, so every edit is
+ * stamped and shown as "แก้ไขโดยฝ่ายบริหาร" (see editBookingByManagement's
+ * doc comment) — it's a visible correction, never a silent rewrite. Who
+ * asked, which resource, and when are never editable this way; reassigning
+ * the actual car/driver/time is TripOrder's job, not this one's.
  *
- * 1. `{ approvalStatus: "rejected" }` — rejects a pending car booking
- *    outright, gated by canApproveCarBooking. "Approving" is no longer a
- *    status flip here at all — approving means dispatching via a separate
- *    TripOrder (car + driver + unified time, possibly covering several
- *    bookings at once — see POST /api/booking/trip-orders and
- *    createTripOrder in lib/sheets.ts). Sending approvalStatus: "approved"
- *    here is rejected with a message pointing at that endpoint, rather than
- *    silently accepted.
- *
- * 2. `{ edit: { purpose?, destination?, participants?, contactPhone?,
- *    companions? } }` — corrects one or more of that fixed, narrow set of
- *    fields on the booking itself, gated by canEditBookingByManagement.
- *    This is the one deliberate, later-added exception to "the original
- *    request is never edited": the hospital explicitly asked for it, so
- *    every edit is stamped and shown as "แก้ไขโดยฝ่ายบริหาร" (see
- *    editBookingByManagement's doc comment) — it's a visible correction,
- *    never a silent rewrite. Who asked, which resource, and when are never
- *    editable this way; reassigning the actual car/driver/time is still
- *    TripOrder's job, not this one's. */
+ * There used to be a second thing here — `{ approvalStatus: "rejected" }`,
+ * letting a superadmin reject a pending car booking outright — removed per
+ * the hospital's later explicit request ("ด้วยความที่ผู้อนุมัติรถมีเพียงผอ.
+ * ดังนั้น เดิมที่ให้ฝ่ายบริหารผู้จัดรถมีสิทธิ ไม่อนุมัติ ต้องเอา[ออก]"): only the
+ * director may ever reject a car booking now, and only after it's been
+ * dispatched (see setDirectorDecision in lib/sheets.ts, via /director) —
+ * ฝ่ายบริหาร/ผู้จัดรถเหลือแค่จัดรถให้ (POST /api/booking/trip-orders) หรือเฉย
+ * ไว้ (หรือยกเลิกถ้าเป็นเจ้าของ/superadmin — DELETE ด้านบน, "ยกเลิก" ไม่ใช่
+ * "ปฏิเสธ") ไม่มีทางปฏิเสธคำขอที่ยังไม่จัดรถได้จากชั้นนี้อีกต่อไป. Any request
+ * sent here without an `edit` payload is now rejected outright, pointing at
+ * where the real decision now lives. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ bookingId: string }> }) {
   const { session, response } = requireSession(request);
   if (!session) return response;
@@ -185,68 +169,40 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const isEditRequest = !!body && typeof body === "object" && "edit" in (body as Record<string, unknown>);
 
-  if (isEditRequest) {
-    if (!canEditBookingByManagement(session)) {
-      return NextResponse.json(
-        { error: "แก้ไขข้อมูลการจองได้เฉพาะผู้มีสิทธิ์นี้เท่านั้น" },
-        { status: 403 }
-      );
-    }
-    const edits = readEditPayload(body);
-    if (!edits) {
-      return NextResponse.json(
-        { error: "ข้อมูลที่ส่งมาไม่ถูกต้อง — กรุณากรอกข้อมูลที่ต้องการแก้ไขให้ถูกต้องอย่างน้อย 1 รายการ" },
-        { status: 400 }
-      );
-    }
-    try {
-      const updated = await editBookingByManagement(bookingId, edits, session.username);
-      await appendEditLog({
-        timestamp: new Date().toISOString(),
-        action: "แก้ไขข้อมูลการจองโดยฝ่ายบริหาร",
-        actor: session.username,
-        department: session.department,
-        oldValue: "",
-        newValue: `${updated.resourceName}: ${updated.startTime} - ${updated.endTime} — แก้ไข: ${Object.keys(
-          edits
-        ).join(", ")} ${requestAuditTag(request)}`,
-      });
-      return NextResponse.json({ booking: updated });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-  }
-
-  if (!canApproveCarBooking(session)) {
-    return NextResponse.json(
-      { error: "แก้ไข/ปฏิเสธการจองรถได้เฉพาะสิทธิ์ Superadmin เท่านั้น" },
-      { status: 403 }
-    );
-  }
-  const approvalStatus = readApprovalPayload(body);
-  if (!approvalStatus) {
-    return NextResponse.json({ error: "ข้อมูลที่ส่งมาไม่ถูกต้อง" }, { status: 400 });
-  }
-  if (approvalStatus === "approved") {
+  if (!isEditRequest) {
     return NextResponse.json(
       {
         error:
-          "การจัดรถต้องออกใบสั่งงานเดินทาง (ระบุรถ/คนขับ/เวลา) ผ่านหน้าจัดรถ ไม่สามารถจัดรถตรงนี้ได้อีกต่อไป",
+          "ฝ่ายบริหาร/ผู้จัดรถไม่มีสิทธิ์ปฏิเสธคำขอจองรถแล้ว — มีผู้อนุมัติ/ไม่อนุมัติได้เพียง ผอ. เท่านั้น (ผ่านหน้า /director หลังจัดรถแล้ว) ทำได้แค่จัดรถให้หรือยกเลิกคำขอเท่านั้น",
       },
       { status: 400 }
     );
   }
 
+  if (!canEditBookingByManagement(session)) {
+    return NextResponse.json(
+      { error: "แก้ไขข้อมูลการจองได้เฉพาะผู้มีสิทธิ์นี้เท่านั้น" },
+      { status: 403 }
+    );
+  }
+  const edits = readEditPayload(body);
+  if (!edits) {
+    return NextResponse.json(
+      { error: "ข้อมูลที่ส่งมาไม่ถูกต้อง — กรุณากรอกข้อมูลที่ต้องการแก้ไขให้ถูกต้องอย่างน้อย 1 รายการ" },
+      { status: 400 }
+    );
+  }
   try {
-    const updated = await rejectCarBooking(bookingId, session.username);
+    const updated = await editBookingByManagement(bookingId, edits, session.username);
     await appendEditLog({
       timestamp: new Date().toISOString(),
-      action: "ปฏิเสธการจองรถ",
+      action: "แก้ไขข้อมูลการจองโดยฝ่ายบริหาร",
       actor: session.username,
       department: session.department,
       oldValue: "",
-      newValue: `${updated.resourceName}: ${updated.startTime} - ${updated.endTime} ${requestAuditTag(request)}`,
+      newValue: `${updated.resourceName}: ${updated.startTime} - ${updated.endTime} — แก้ไข: ${Object.keys(
+        edits
+      ).join(", ")} ${requestAuditTag(request)}`,
     });
     return NextResponse.json({ booking: updated });
   } catch (err: unknown) {

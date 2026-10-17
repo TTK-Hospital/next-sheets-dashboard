@@ -108,7 +108,14 @@ export const PERMISSION_KEYS: PermissionKey[] = [
 /** Thai labels for the checkbox list in UserFormModal — kept here, next to
  * the keys themselves, so the two can never drift out of sync. */
 export const PERMISSION_LABELS: Record<PermissionKey, string> = {
-  approveCarBooking: "อนุมัติ/ไม่อนุมัติ/ออกใบสั่งงานการจองรถ",
+  // เดิมชื่อ "อนุมัติ/ไม่อนุมัติ/ออกใบสั่งงานการจองรถ" — ตัด "อนุมัติ/ไม่อนุมัติ"
+  // ออกแล้ว เหลือแค่ "จัดรถ" เพราะมีผู้อนุมัติ/ไม่อนุมัติการจองรถได้เพียง ผอ.
+  // คนเดียวเท่านั้นตามที่ขอ (ดู PATCH /api/booking/bookings/[bookingId]'s doc
+  // comment และ canApproveCarBooking's doc comment ใน lib/booking.ts) — คีย์
+  // ชื่อ "approveCarBooking" เองยังคงไว้เหมือนเดิมเพื่อไม่ต้องย้ายข้อมูลสิทธิ
+  // เก่าของทุกบัญชี มีผลกับ label ที่แสดงผลให้ bootstrap เห็นตอนติ๊กสิทธิ์
+  // เท่านั้น
+  approveCarBooking: "จัดรถ (ออกใบสั่งงานการจองรถ)",
   editBookingData: "แก้ไขข้อมูลรายละเอียดการจอง (วัตถุประสงค์/ปลายทาง/ผู้ร่วมเดินทาง ฯลฯ)",
   manageBookingResources: "จัดการรถ/ห้องประชุม (เพิ่ม/แก้ไข/ปิดใช้งาน)",
   manageDrivers: "จัดการข้อมูลคนขับรถ (เพิ่ม/แก้ไข/ปิดใช้งาน)",
@@ -172,8 +179,9 @@ export const NON_GRANTABLE_KEYS: PermissionKey[] = [
  * - admin: addEquipment (per the hospital's original explicit choice —
  *   "admin ให้เพิ่มได้เฉพาะเพิ่มรายการครุภัณฑ์ใหม่เท่านั้น นอกนั้นซ่อนไป") +
  *   approveCarBooking, added later per an explicit follow-up request to let
- *   a specific admin account optionally also review/dispatch car bookings
- *   ("ปรับให้สิทธิ admin สามารถเลือกความสามารถในการอนุมัติ").
+ *   a specific admin account optionally also dispatch car bookings ("ปรับให้
+ *   สิทธิ admin สามารถเลือกความสามารถในการอนุมัติ" — ถ้อยคำเดิมตอนขอ, ตอนนี้คือ
+ *   "จัดรถ" ไม่ใช่ "อนุมัติ" แล้ว ดู PERMISSION_LABELS ด้านบน).
  * - user: accessEquipmentRegistry alone — the one capability the hospital
  *   explicitly asked to make optional for this role (per-department
  *   equipment-registry access, the same thing admin gets by default). */

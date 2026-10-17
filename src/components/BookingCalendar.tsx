@@ -12,6 +12,7 @@ import {
   canCancelBooking,
   carBookingDisplayName,
   formatBookingDateTime,
+  hasBookingStarted,
   isBookingCancelled,
   splitBookingDateTime,
   type Booking,
@@ -250,8 +251,6 @@ export default function BookingCalendar({
   showDestination,
   canApprove,
   canEditBooking,
-  onReject,
-  rejectingBookingId,
   selectedBookingIds,
   onToggleSelect,
   tripOrderByBookingId,
@@ -279,13 +278,6 @@ export default function BookingCalendar({
    * "editBookingData") — ใช้เฉพาะปุ่ม "แก้ไขข้อมูล" ใน DayDetailModal ปุ่ม
    * อื่นทั้งหมดยังใช้ canApprove เหมือนเดิม ดูคอมเมนต์ที่ BookingDashboard.tsx */
   canEditBooking: boolean;
-  /** Rejects a pending car booking outright — the only single-click decision
-   * left here. "Approving" is no longer a status flip: it only happens by
-   * dispatching a TripOrder (see selectedBookingIds/onToggleSelect below and
-   * TripOrderModal), which combining >1 selection into is exactly the
-   * carpool feature. */
-  onReject: (booking: Booking) => void;
-  rejectingBookingId: string | null;
   /** Pending car bookings picked to go into the same TripOrder — owned by
    * BookingDashboard so it survives switching between calendar/list view. */
   selectedBookingIds: Set<string>;
@@ -501,8 +493,6 @@ export default function BookingCalendar({
           showDestination={showDestination}
           canApprove={canApprove}
           canEditBooking={canEditBooking}
-          onReject={onReject}
-          rejectingBookingId={rejectingBookingId}
           selectedBookingIds={selectedBookingIds}
           onToggleSelect={onToggleSelect}
           tripOrderByBookingId={tripOrderByBookingId}
@@ -532,8 +522,6 @@ function DayDetailModal({
   showDestination,
   canApprove,
   canEditBooking,
-  onReject,
-  rejectingBookingId,
   selectedBookingIds,
   onToggleSelect,
   tripOrderByBookingId,
@@ -552,8 +540,6 @@ function DayDetailModal({
   showDestination: boolean;
   canApprove: boolean;
   canEditBooking: boolean;
-  onReject: (booking: Booking) => void;
-  rejectingBookingId: string | null;
   selectedBookingIds: Set<string>;
   onToggleSelect: (booking: Booking) => void;
   tripOrderByBookingId: Map<string, TripOrder>;
@@ -640,6 +626,14 @@ function DayDetailModal({
               // ธรรมชาติ) และมีคำขอที่ยังไม่ถูกยกเลิกเหลืออยู่จริง — ดูคอมเมนต์
               // เต็มที่ buildTripTimeline ด้านบนว่าทำไมกรองแบบนี้
               const timeline = showDestination && trip ? buildTripTimeline(items, tripOrderByBookingId) : null;
+              // ซ่อนปุ่มแก้ไขใบสั่งงานถ้า ผอ. อนุมัติคำขอใดคำขอหนึ่งในกลุ่มนี้
+              // ไปแล้ว หรือถึงเวลาเดินทางจริง (trip.startTime) แล้ว — ล็อกตรง
+              // กับที่ updateTripOrder/splitBookingFromTripOrder บังคับไว้ฝั่ง
+              // เซิร์ฟเวอร์ (ดู isBookingLockedFromEditing ใน lib/booking.ts —
+              // คำนวณเองตรงนี้แทนเรียกฟังก์ชันนั้นตรงๆ เพราะต้องเช็คทั้งกลุ่ม
+              // ไม่ใช่แค่คำขอเดียว)
+              const tripLocked =
+                !!trip && (items.some((it) => it.directorApprovalStatus === "approved") || hasBookingStarted(trip));
               return (
                 <div
                   key={key}
@@ -681,7 +675,7 @@ function DayDetailModal({
                         ส่วนปุ่มนี้แสดงเมื่อมีใบสั่งงานคุมอยู่ (trip) ซึ่งทับ
                         ซ้อนกันได้เฉพาะกรณีคำขอเดี่ยวที่มีใบสั่งงานของตัวเองแล้ว
                         — เมื่อนั้นให้ปุ่มมาก่อน (แก้ไขได้สำคัญกว่าดูสถานะเฉยๆ) */}
-                    {showDestination && trip && canApprove ? (
+                    {showDestination && trip && canApprove && !tripLocked ? (
                       <button
                         type="button"
                         onClick={() => onEditTripOrder(trip)}
@@ -894,31 +888,19 @@ function DayDetailModal({
                           </p>
                         )}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {/* ปุ่ม "ปฏิเสธคำขอ" ถูกถอดออกแล้ว — มีผู้อนุมัติ/ไม่อนุมัติการจองรถ
+                              ได้เพียง ผอ. เท่านั้น (ตามที่ขอ) ฝ่ายบริหาร/ผู้จัดรถเหลือแค่
+                              "เลือกจัดรถ" — ดูคอมเมนต์เดียวกันใน BookingDashboard.tsx */}
                           {!cancelled && canApprove && b.approvalStatus === "pending" && (
-                            <>
-                              <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedBookingIds.has(b.bookingId)}
-                                  onChange={() => onToggleSelect(b)}
-                                  className="h-3.5 w-3.5 accent-[var(--brand)]"
-                                />
-                                เลือกจัดรถ
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => onReject(b)}
-                                disabled={rejectingBookingId === b.bookingId}
-                                className="inline-flex w-fit items-center gap-1 rounded-full border border-red-200 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-60 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
-                              >
-                                {rejectingBookingId === b.bookingId ? (
-                                  <Loader2 size={12} strokeWidth={2} className="animate-spin" aria-hidden="true" />
-                                ) : (
-                                  <X size={12} strokeWidth={2} aria-hidden="true" />
-                                )}
-                                ปฏิเสธคำขอ
-                              </button>
-                            </>
+                            <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                              <input
+                                type="checkbox"
+                                checked={selectedBookingIds.has(b.bookingId)}
+                                onChange={() => onToggleSelect(b)}
+                                className="h-3.5 w-3.5 accent-[var(--brand)]"
+                              />
+                              เลือกจัดรถ
+                            </label>
                           )}
                           {!cancelled && canEditBooking && showDestination && (
                             <button

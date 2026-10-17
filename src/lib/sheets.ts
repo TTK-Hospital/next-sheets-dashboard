@@ -9,7 +9,9 @@ import { isPermissionKey, type PermissionKey } from "@/lib/permissions";
 import {
   formatBookingDateTime,
   hasBookingConflict,
+  hasBookingStarted,
   isBookingCancelled,
+  isBookingLockedFromEditing,
   PENDING_CAR_RESOURCE_NAME,
   splitBookingDateTime,
   type Booking,
@@ -323,15 +325,18 @@ export type EditLogAction =
   | "จองทรัพยากร"
   | "ยกเลิกการจอง"
   // "อนุมัติการจองรถ"/"ไม่อนุมัติการจองรถ" retired from the write path —
-  // approval now always goes through "ออกใบสั่งงานเดินทาง" below, and the
-  // reject path now logs "ปฏิเสธการจองรถ" instead (per the hospital's later
-  // explicit request to drop the word "อนุมัติ" from everything at the
-  // superadmin/admin level — only the director's own /director sign-off is
-  // ever called "อนุมัติ" conceptually, and even that page itself uses
-  // "รับทราบ" wording, never this string) — both old strings are kept in
-  // the union only because old EditLog rows already logged with them still
-  // need to type-check against anything that reads EditLog rows back typed
-  // as EditLogAction.
+  // approval now always goes through "ออกใบสั่งงานเดินทาง" below (per the
+  // hospital's later explicit request to drop the word "อนุมัติ" from
+  // everything at the superadmin/admin level — only the director's own
+  // /director sign-off is ever called "อนุมัติ" conceptually).
+  // "ปฏิเสธการจองรถ" (the reject-outright path that briefly replaced
+  // "ไม่อนุมัติการจองรถ") is retired too now — มีผู้มีสิทธิอนุมัติ/ปฏิเสธการจอง
+  // รถได้เพียง ผอ. คนเดียวเท่านั้น (ตามที่ขอ "เดิมที่ให้ฝ่ายบริหารผู้จัดรถมีสิทธิ
+  // ไม่อนุมัติ ต้องเอา[ออก]") — ฝ่ายบริหาร/ผู้จัดรถเหลือแค่ "จัดรถ" (ดู
+  // createTripOrder) ไม่มีทางปฏิเสธคำขอที่ยังไม่จัดรถได้อีกต่อไป (ดูคอมเมนต์
+  // REMOVED เหนือตำแหน่งเดิมของ rejectCarBooking ด้านล่าง) — ทั้งสามสตริงนี้
+  // ยังอยู่ในยูเนียนนี้เฉพาะเพื่อให้แถว EditLog เก่าที่เคยถูกเขียนไว้แล้วยัง
+  // type-check ผ่าน ไม่มีการเขียนด้วยคำไหนในสามคำนี้อีกต่อไปจากนี้.
   | "อนุมัติการจองรถ"
   | "ไม่อนุมัติการจองรถ"
   | "ปฏิเสธการจองรถ"
@@ -2270,74 +2275,18 @@ export async function cancelBooking(bookingId: string, cancelledByUsername: stri
   return merged;
 }
 
-/** Rejects a *pending* car booking outright — the superadmin review step a
- * car booking needs before it's settled either way (see
- * BookingApprovalStatus in lib/booking.ts). Find-by-id scan, same reasoning
- * as cancelBooking. Only ever moves a booking out of "pending" — rejecting
- * one that's already been reviewed (or was cancelled by its owner first, or
- * isn't a car booking) throws instead of silently overwriting a prior
- * decision; the permission check itself (canApproveCarBooking) is the API
- * route's job, not this function's, same split as
- * cancelBooking/canCancelBooking.
- *
- * "approved" is deliberately not an accepted value here anymore — approving
- * a pending car booking now means dispatching it via createTripOrder below
- * (which does its own approvalStatus/approvedAt/approvedByUsername write,
- * alongside setting tripOrderId), never this plain toggle. Keeping this
- * function reject-only means there's no code path left that can mark a
- * booking "approved" without a TripOrder backing it. */
-export async function rejectCarBooking(bookingId: string, rejectedByUsername: string): Promise<Booking> {
-  const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
-  const tab = getBookingsTab();
-  const sheets = google.sheets({ version: "v4", auth: sheetsAuth() });
-
-  let values: string[][] | undefined;
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${tab}!A2:AA100000`,
-    });
-    values = res.data.values as string[][] | undefined;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`อ่านรายการจองไม่สำเร็จ: ${message}`);
-  }
-
-  const rows = values ?? [];
-  const idx = rows.findIndex((row) => (row[0] ?? "").toString().trim() === bookingId);
-  if (idx === -1) {
-    throw new Error("ไม่พบรายการจองนี้ — อาจถูกยกเลิกไปแล้ว");
-  }
-  const current = rowToBooking(rows[idx]);
-  if (current.resourceType !== "car") {
-    throw new Error("การจองนี้ไม่ต้องรอจัดรถ");
-  }
-  if (current.approvalStatus !== "pending") {
-    throw new Error("รายการจองนี้ถูกพิจารณาไปแล้ว");
-  }
-  const merged: Booking = {
-    ...current,
-    approvalStatus: "rejected",
-    approvedAt: new Date().toISOString(),
-    approvedByUsername: rejectedByUsername,
-  };
-  const sheetRow = idx + 2;
-
-  try {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${tab}!A${sheetRow}:AA${sheetRow}`,
-      // RAW — see the note on createBooking's append() above.
-      valueInputOption: "RAW",
-      requestBody: { values: [bookingToRow(merged)] },
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`บันทึกผลการปฏิเสธคำขอไม่สำเร็จ: ${message}`);
-  }
-
-  return merged;
-}
+/** REMOVED — มีผู้อนุมัติ/ปฏิเสธการจองรถได้เพียงคนเดียวคือ ผอ. เท่านั้น (ตามที่
+ * ขอ "ด้วยความที่ผู้อนุมัติรถมีเพียงผอ. ดังนั้น เดิมที่ให้ฝ่ายบริหารผู้จัดรถมี
+ * สิทธิ ไม่อนุมัติ ต้องเอา[ออก]") — ฝ่ายบริหาร/ผู้จัดรถ (canApproveCarBooking)
+ * จึงเหลือแค่สองทางกับคำขอที่ "รอจัดรถ": จัดรถให้ (createTripOrder ด้านล่าง,
+ * ซึ่งจะเข้าคิวรอ ผอ. อนุมัติ/ไม่อนุมัติ/ตีกลับต่อผ่านหน้า /director) หรือเฉยไว้
+ * (หรือยกเลิกได้ถ้าเป็นเจ้าของ/superadmin — ดู canCancelBooking — แต่นั่นคือ
+ * "ยกเลิก" ไม่ใช่ "ปฏิเสธ") ไม่มีทางปฏิเสธคำขอที่ยังไม่จัดรถได้อีกต่อไปจากชั้นนี้
+ * — ฟังก์ชันนี้ (เดิมคือ rejectCarBooking) และ endpoint ที่เรียกมัน (PATCH
+ * /api/booking/bookings/[bookingId] ด้วย { approvalStatus: "rejected" })
+ * ถูกถอดออกไปแล้ว ไม่มีโค้ดใดเขียนค่า Booking.approvalStatus เป็น "rejected"
+ * อีกต่อไปตั้งแต่นี้ (ยังเป็นสถานะที่ parseApprovalStatus/bookingStatusLabel
+ * อ่าน/แสดงได้ตามปกติ — เพื่อแถวเก่าที่เคยถูกปฏิเสธไว้ก่อนการเปลี่ยนนี้). */
 
 /** Lets management/superadmin correct a narrow, fixed set of fields on an
  * *existing* booking — purpose/destination/participants/contactPhone/
@@ -2391,13 +2340,24 @@ export async function editBookingByManagement(
   const current = rowToBooking(rows[idx]);
   // Scoped to car bookings only — this whole capability exists for the car
   // review/dispatch workflow (gated by canApproveCarBooking, same as
-  // rejectCarBooking/createTripOrder); a room booking has no review step
-  // and was never part of this request.
+  // createTripOrder); a room booking has no review step and was never part
+  // of this request.
   if (current.resourceType !== "car") {
     throw new Error("แก้ไขข้อมูลตรงนี้ได้เฉพาะการจองรถเท่านั้น");
   }
   if (isBookingCancelled(current)) {
     throw new Error("รายการจองนี้ถูกยกเลิกไปแล้ว แก้ไขไม่ได้");
+  }
+  // ผอ. อนุมัติแล้ว หรือถึงเวลาเดินทางไปแล้ว — ล็อกไม่ให้แก้ไขอีกต่อไป (ตามที่
+  // ขอ "รายการอนุมัติที่ได้ทำการอนุมัติไปแล้ว ไม่สามารถแก้ไขใดๆ ได้อีก และ
+  // รายการที่ช่วงเวลามันผ่านช่วงเวลาการเดินทางหรือเริ่มเดินทางไปแล้ว ต้องไม่
+  // สามารถแก้ไขใดๆได้อีก") — ดู isBookingLockedFromEditing ใน lib/booking.ts
+  if (isBookingLockedFromEditing(current)) {
+    throw new Error(
+      current.directorApprovalStatus === "approved"
+        ? "รายการนี้ ผอ. อนุมัติแล้ว แก้ไขไม่ได้อีก"
+        : "รายการนี้ถึงเวลาเดินทางแล้ว แก้ไขไม่ได้อีก"
+    );
   }
 
   const merged: Booking = {
@@ -2815,27 +2775,50 @@ export async function updateTripOrder(
   }
   const current = rowToTripOrder(tripRows[tripIdx]);
 
+  // ล็อกไม่ให้แก้ไขใบสั่งงานนี้อีกต่อไปถ้าถึงเวลาเดินทางจริง (ตาม startTime ที่
+  // จัดไว้) ไปแล้ว — ตามที่ขอ "รายการที่ช่วงเวลามันผ่านช่วงเวลาการเดินทางหรือ
+  // เริ่มเดินทางไปแล้ว ต้องไม่สามารถแก้ไขใดๆได้อีก" (ดู hasBookingStarted/
+  // isBookingLockedFromEditing ใน lib/booking.ts — ใช้เวลาจริงของใบสั่งงาน
+  // เอง ไม่ใช่เวลาที่คำขอเดิมขอมา เพราะนี่คือเวลาที่รถจะออกจริง)
+  if (hasBookingStarted(current)) {
+    throw new Error("ใบสั่งงานนี้ถึงเวลาเดินทางแล้ว แก้ไขไม่ได้อีก");
+  }
+
   // ตัดรายการที่ครอบคลุมอยู่แล้ว (หรือซ้ำกันเองในคำขอเดียวกัน) ออกก่อนเสมอ —
   // ไม่ถือเป็นข้อผิดพลาด แค่ไม่มีอะไรต้องทำเพิ่มสำหรับรายการนั้น
   const addBookingIds = Array.from(new Set(updates.addBookingIds ?? [])).filter(
     (id) => !current.bookingIds.includes(id)
   );
 
+  // โหลดแท็บคำขอจองไว้เสมอ (ไม่ใช่แค่ตอนมี addBookingIds) — ต้องใช้เช็คว่า
+  // คำขอที่ใบสั่งงานนี้ครอบคลุมอยู่แล้วมีรายการไหน ผอ. อนุมัติไปแล้วบ้างหรือยัง
+  // ด้านล่างด้วย
+  let bookingValues: string[][] | undefined;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${bookingsTab}!A2:AA100000`,
+    });
+    bookingValues = res.data.values as string[][] | undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`อ่านรายการจองไม่สำเร็จ: ${message}`);
+  }
+  const bookingRows = bookingValues ?? [];
+
+  // ผอ. อนุมัติคำขอใดคำขอหนึ่งในใบสั่งงานนี้ไปแล้ว — ล็อกทั้งใบสั่งงาน แก้ไข
+  // อะไรต่อไม่ได้อีก (ตามที่ขอ "รายการอนุมัติที่ได้ทำการอนุมัติไปแล้ว ไม่สามารถ
+  // แก้ไขใดๆ ได้อีก")
+  for (const bookingId of current.bookingIds) {
+    const idx = bookingRows.findIndex((row) => (row[0] ?? "").toString().trim() === bookingId);
+    if (idx === -1) continue; // กันพลาด — ไม่ควรเกิดขึ้น
+    if (rowToBooking(bookingRows[idx]).directorApprovalStatus === "approved") {
+      throw new Error("ใบสั่งงานนี้มีคำขอที่ ผอ. อนุมัติไปแล้ว แก้ไขไม่ได้อีก");
+    }
+  }
+
   const bookingTargets: { rowIndex: number; booking: Booking }[] = [];
   if (addBookingIds.length > 0) {
-    let bookingValues: string[][] | undefined;
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${bookingsTab}!A2:AA100000`,
-      });
-      bookingValues = res.data.values as string[][] | undefined;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`อ่านรายการจองไม่สำเร็จ: ${message}`);
-    }
-    const bookingRows = bookingValues ?? [];
-
     for (const bookingId of addBookingIds) {
       const idx = bookingRows.findIndex((row) => (row[0] ?? "").toString().trim() === bookingId);
       if (idx === -1) {
@@ -2979,6 +2962,11 @@ export async function splitBookingFromTripOrder(
   if (current.bookingIds.length <= 1) {
     throw new Error("ใบสั่งงานนี้มีคำขอจองเพียงรายการเดียว ไม่สามารถแยกออกได้");
   }
+  // ถึงเวลาเดินทางจริงไปแล้ว — ล็อกไม่ให้แยกออกอีก เหตุผลเดียวกับ
+  // updateTripOrder ด้านบน (ดู hasBookingStarted ใน lib/booking.ts)
+  if (hasBookingStarted(current)) {
+    throw new Error("ใบสั่งงานนี้ถึงเวลาเดินทางแล้ว แก้ไขไม่ได้อีก");
+  }
 
   let bookingValues: string[][] | undefined;
   try {
@@ -2999,6 +2987,11 @@ export async function splitBookingFromTripOrder(
   const booking = rowToBooking(bookingRows[bookingIdx]);
   if (isBookingCancelled(booking)) {
     throw new Error(`${booking.resourceName}: ถูกยกเลิกไปแล้ว ไม่ต้องแยกออกอีก`);
+  }
+  // ผอ. อนุมัติคำขอนี้ไปแล้ว — ล็อกไม่ให้แยกออกอีก (ตามที่ขอ "รายการอนุมัติที่
+  // ได้ทำการอนุมัติไปแล้ว ไม่สามารถแก้ไขใดๆ ได้อีก")
+  if (booking.directorApprovalStatus === "approved") {
+    throw new Error("คำขอนี้ ผอ. อนุมัติไปแล้ว แก้ไขไม่ได้อีก");
   }
 
   const updatedTripOrder: TripOrder = {
@@ -3267,6 +3260,11 @@ export async function returnTripToDispatch(
   if (current.bookingIds.length === 0) {
     throw new Error("ใบสั่งงานนี้ไม่มีคำขอจองเหลืออยู่แล้ว");
   }
+  // ถึงเวลาเดินทางจริงไปแล้ว — ล็อกไม่ให้ตีกลับอีก เหตุผลเดียวกับ
+  // updateTripOrder/splitBookingFromTripOrder ด้านบน
+  if (hasBookingStarted(current)) {
+    throw new Error("ใบสั่งงานนี้ถึงเวลาเดินทางแล้ว แก้ไขไม่ได้อีก");
+  }
 
   let bookingValues: string[][] | undefined;
   try {
@@ -3287,6 +3285,13 @@ export async function returnTripToDispatch(
     if (idx === -1) continue; // กันพลาด — ไม่ควรเกิดขึ้น
     const booking = rowToBooking(bookingRows[idx]);
     if (isBookingCancelled(booking)) continue; // ยกเลิกไปแล้ว ไม่ต้องตีกลับอีก
+    // ผอ. อนุมัติคำขอนี้ไปแล้ว — ล็อกทั้งใบสั่งงาน ตีกลับไม่ได้อีก (ตามที่ขอ
+    // "รายการอนุมัติที่ได้ทำการอนุมัติไปแล้ว ไม่สามารถแก้ไขใดๆ ได้อีก") — ไม่ควร
+    // เกิดขึ้นจริงผ่านหน้า /director เอง (ซึ่งแสดงแค่รายการที่ยัง "pending"
+    // เท่านั้น) กันไว้เผื่อเรียก API ตรงๆ
+    if (booking.directorApprovalStatus === "approved") {
+      throw new Error("ใบสั่งงานนี้มีคำขอที่ ผอ. อนุมัติไปแล้ว ตีกลับไม่ได้อีก");
+    }
     targets.push({ rowIndex: idx, booking });
   }
   if (targets.length === 0) {

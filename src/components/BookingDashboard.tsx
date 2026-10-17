@@ -19,7 +19,6 @@ import {
   Truck,
   UserCog,
   Users,
-  X as XIcon,
 } from "lucide-react";
 import type { Role } from "@/lib/auth";
 import { buildActionColorMap, actionColorVars, type ActionColor } from "@/lib/actionColors";
@@ -33,6 +32,7 @@ import {
   carBookingDisplayName,
   formatBookingDateTime,
   isBookingCancelled,
+  isBookingLockedFromEditing,
   TRIP_ORDER_CHANGED_EVENT,
   type Booking,
   type BookingResource,
@@ -157,7 +157,6 @@ export default function BookingDashboard({
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [togglingResourceId, setTogglingResourceId] = useState<string | null>(null);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
-  const [rejectingBookingId, setRejectingBookingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   // ข้อความยืนยันสำเร็จหลังออกใบสั่งงานเดินทาง — เดิมไม่มีเลย ปิดหน้าต่าง
   // TripOrderModal เงียบๆ อย่างเดียว ผู้ใช้จึงไม่แน่ใจว่าสั่งงานสำเร็จหรือไม่
@@ -448,43 +447,6 @@ export default function BookingDashboard({
       setActionError("ยกเลิกไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setCancellingBookingId(null);
-    }
-  }
-
-  /** Rejects a pending car booking outright — single click, no TripOrder
-   * involved. "Approving" is handled entirely by handleTripOrderCreated
-   * below now — see PATCH /api/booking/bookings/[bookingId]'s doc comment
-   * for why this endpoint no longer accepts approvalStatus: "approved". */
-  async function handleReject(booking: Booking) {
-    setRejectingBookingId(booking.bookingId);
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/booking/bookings/${booking.bookingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approvalStatus: "rejected" }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json.error || "บันทึกผลการปฏิเสธคำขอไม่สำเร็จ");
-        return;
-      }
-      const updated = json.booking as Booking;
-      setData((prev) =>
-        isError(prev)
-          ? prev
-          : { ...prev, bookings: prev.bookings.map((b) => (b.bookingId === updated.bookingId ? updated : b)) }
-      );
-      setSelectedBookingIds((prev) => {
-        if (!prev.has(updated.bookingId)) return prev;
-        const next = new Set(prev);
-        next.delete(updated.bookingId);
-        return next;
-      });
-    } catch {
-      setActionError("บันทึกผลการปฏิเสธคำขอไม่สำเร็จ กรุณาลองใหม่");
-    } finally {
-      setRejectingBookingId(null);
     }
   }
 
@@ -802,8 +764,6 @@ export default function BookingDashboard({
                   showDestination={type === "car"}
                   canApprove={canApprove}
                   canEditBooking={canEditBooking}
-                  onReject={handleReject}
-                  rejectingBookingId={rejectingBookingId}
                   selectedBookingIds={selectedBookingIds}
                   onToggleSelect={toggleBookingSelection}
                   tripOrderByBookingId={tripOrderByBookingId}
@@ -927,31 +887,19 @@ export default function BookingDashboard({
                             </td>
                             <td className="px-2 py-2.5 text-right">
                               <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                {/* ปุ่ม "ปฏิเสธคำขอ" ถูกถอดออกแล้ว — มีผู้อนุมัติ/
+                                    ไม่อนุมัติการจองรถได้เพียง ผอ. เท่านั้น (ตามที่
+                                    ขอ) ฝ่ายบริหาร/ผู้จัดรถเหลือแค่ "เลือกจัดรถ" */}
                                 {!cancelled && canApprove && booking.approvalStatus === "pending" && (
-                                  <>
-                                    <label className={`${ACTION_BUTTON} cursor-pointer border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800`}>
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedBookingIds.has(booking.bookingId)}
-                                        onChange={() => toggleBookingSelection(booking)}
-                                        className="h-3.5 w-3.5 accent-[var(--brand)]"
-                                      />
-                                      เลือกจัดรถ
-                                    </label>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleReject(booking)}
-                                      disabled={rejectingBookingId === booking.bookingId}
-                                      className={`${ACTION_BUTTON} border-red-200 text-red-700 hover:bg-red-50 focus-visible:outline-red-600 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30`}
-                                    >
-                                      {rejectingBookingId === booking.bookingId ? (
-                                        <Loader2 size={12} strokeWidth={2} className="animate-spin" aria-hidden="true" />
-                                      ) : (
-                                        <XIcon size={12} strokeWidth={2} aria-hidden="true" />
-                                      )}
-                                      ปฏิเสธคำขอ
-                                    </button>
-                                  </>
+                                  <label className={`${ACTION_BUTTON} cursor-pointer border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800`}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedBookingIds.has(booking.bookingId)}
+                                      onChange={() => toggleBookingSelection(booking)}
+                                      className="h-3.5 w-3.5 accent-[var(--brand)]"
+                                    />
+                                    เลือกจัดรถ
+                                  </label>
                                 )}
                                 {!cancelled && tripOrderByBookingId.get(booking.bookingId) && (
                                   <>
@@ -967,7 +915,12 @@ export default function BookingDashboard({
                                         ข้อความกำกับชัดเจน แทนไอคอนดินสอเล็กๆ ที่
                                         ฝังอยู่ในป้ายคนขับ สังเกตเห็นยาก ตามที่ขอ
                                         (สอดคล้องกับปุ่มเดียวกันในมุมมองปฏิทิน) */}
-                                    {canApprove && (
+                                    {/* ซ่อนปุ่มแก้ไขถ้า ผอ. อนุมัติไปแล้ว หรือถึงเวลา
+                                        เดินทางแล้ว — ล็อกตรงกับที่ updateTripOrder/
+                                        splitBookingFromTripOrder บังคับไว้ฝั่ง
+                                        เซิร์ฟเวอร์ (ดู isBookingLockedFromEditing ใน
+                                        lib/booking.ts) */}
+                                    {canApprove && !isBookingLockedFromEditing(booking) && (
                                       <button
                                         type="button"
                                         onClick={() => setEditTripOrderTarget(tripOrderByBookingId.get(booking.bookingId)!)}
@@ -979,7 +932,7 @@ export default function BookingDashboard({
                                     )}
                                   </>
                                 )}
-                                {!cancelled && canEditBooking && (
+                                {!cancelled && canEditBooking && !isBookingLockedFromEditing(booking) && (
                                   <button
                                     type="button"
                                     onClick={() => setEditBookingTarget(booking)}

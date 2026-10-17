@@ -74,8 +74,9 @@ function readTripOrderPayload(body: unknown): TripOrderPayload | null {
  * booking becomes "approved" now, and covering >1 bookingId here IS the
  * "combine into one trip" (carpool) feature — see createTripOrder's doc
  * comment in lib/sheets.ts. Reachable only by an account with
- * canApproveCarBooking, same gate as the reject-only PATCH on
- * /api/booking/bookings/[bookingId].
+ * canApproveCarBooking (dispatch-only now — see that function's doc comment
+ * in lib/booking.ts for why rejecting a pending car booking outright is no
+ * longer possible at this level at all).
  *
  * Deliberately never edits the original booking rows' own fields (purpose,
  * destination, participants, etc.) — only approvalStatus and tripOrderId
