@@ -40,6 +40,11 @@ async function logDirectorAttempt(auditTag: string, outcome: "สำเร็จ
  * var) แทน — รูปแบบเดียวกับ bootstrap superadmin ใน
  * api/auth/login/route.ts's checkBootstrapAccount — มีทางเข้าได้เสมอตั้งแต่
  * วันแรกที่ deploy แม้ยังไม่เคยกด "เปลี่ยนรหัสผ่าน" เลย.
+ *
+ * `remember` (optional, boolean) — ตัวเลือก "จำรหัสผ่าน" บนหน้า login (ตามที่
+ * ขอเพิ่มภายหลัง) ติ๊กแล้วคุกกี้เซสชันจะอายุ 30 วันแทน 20 นาที (ดู
+ * DIRECTOR_REMEMBER_TTL_MS ใน lib/directorAuth.ts) ไม่ใช่การเก็บรหัสผ่านไว้ที่
+ * ไหนเลย — ยังต้องกรอกรหัสผ่านถูกต้องทุกครั้งที่ล็อกอินใหม่เหมือนเดิม.
  */
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -53,6 +58,10 @@ export async function POST(request: NextRequest) {
   if (!password) {
     return NextResponse.json({ error: "กรุณาระบุรหัสผ่าน" }, { status: 400 });
   }
+  // ตัวเลือก "จำรหัสผ่าน" บนหน้า login (ตามที่ขอ) — คุม TTL ของคุกกี้เซสชัน
+  // เท่านั้น (ดูคอมเมนต์ที่ DIRECTOR_REMEMBER_TTL_MS ใน lib/directorAuth.ts) ไม่
+  // เกี่ยวกับรหัสผ่านจริงเลย ยังต้องกรอกให้ถูกทุกครั้งที่ login เหมือนเดิม
+  const remember = b.remember === true;
 
   const auditTag = requestAuditTag(request);
   const rateLimitKey = `director-login:${clientIp(request)}`;
@@ -83,6 +92,6 @@ export async function POST(request: NextRequest) {
   after(() => logDirectorAttempt(auditTag, "สำเร็จ"));
 
   const response = NextResponse.json({ ok: true });
-  setDirectorSessionCookie(response);
+  setDirectorSessionCookie(response, remember);
   return response;
 }

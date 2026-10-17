@@ -162,6 +162,12 @@ export default function DirectorDashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [password, setPassword] = useState("");
+  // ตัวเลือก "จำรหัสผ่าน" บนฟอร์ม login (ตามที่ขอ "ให้มีการเลือกจำรหัสผ่าน
+  // เพิ่มด้วยครับ") — ไม่ได้เก็บรหัสผ่านไว้ที่ไหนเลย ส่งแค่ true/false ไปกับ
+  // POST /api/director/login ให้เซิร์ฟเวอร์ออกคุกกี้เซสชันอายุ 30 วันแทน 20
+  // นาที (ดู DIRECTOR_REMEMBER_TTL_MS ใน lib/directorAuth.ts) ยังต้องกรอก
+  // รหัสผ่านถูกต้องทุกครั้งที่ล็อกอินใหม่เหมือนเดิมทุกประการ
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -256,7 +262,7 @@ export default function DirectorDashboard() {
       const res = await fetch("/api/director/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, remember: rememberPassword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "เข้าสู่ระบบไม่สำเร็จ");
@@ -486,6 +492,8 @@ export default function DirectorDashboard() {
       <LoginScreen
         password={password}
         setPassword={setPassword}
+        remember={rememberPassword}
+        setRemember={setRememberPassword}
         onSubmit={handleLogin}
         busy={busy}
         error={error}
@@ -1353,6 +1361,8 @@ function TripCard({
 function LoginScreen({
   password,
   setPassword,
+  remember,
+  setRemember,
   onSubmit,
   busy,
   error,
@@ -1361,6 +1371,11 @@ function LoginScreen({
 }: {
   password: string;
   setPassword: (v: string) => void;
+  /** ตัวเลือก "จำรหัสผ่าน" (ตามที่ขอ) — ดูคอมเมนต์ที่ rememberPassword state
+   * ใน DirectorDashboard ด้านบน ว่าทำอะไรจริงๆ (ขยาย TTL คุกกี้เซสชัน ไม่ได้
+   * เก็บรหัสผ่านไว้ที่ไหนเลย) */
+  remember: boolean;
+  setRemember: (v: boolean) => void;
   onSubmit: (e: React.FormEvent) => void;
   busy: boolean;
   error: string;
@@ -1384,15 +1399,31 @@ function LoginScreen({
         )}
         {error && <div className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
+        {/* ไม่มีช่อง username ในฟอร์มนี้เลย (ตามที่ขอ — ผอ. มีบัญชีเดียว) แต่
+            ยังอยาก trigger ให้เบราว์เซอร์เสนอ "บันทึกรหัสผ่าน" ของตัวมันเอง
+            ได้ด้วย (เพิ่มเติมจากตัวเลือก "จำรหัสผ่าน" ของแอปเองด้านล่าง) จึงใส่
+            autoComplete="current-password" ไว้ให้ตรงตามสเปก แม้จะมีแค่ช่องนี้
+            ช่องเดียวก็ตาม */}
         <label className="mt-6 block text-sm font-medium text-slate-700">
           รหัสผ่าน
           <input
             type="password"
             autoFocus
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-3 text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
+        </label>
+
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+            className="h-4 w-4 accent-indigo-600"
+          />
+          จำรหัสผ่านไว้ในเครื่องนี้ (30 วัน)
         </label>
 
         <button
