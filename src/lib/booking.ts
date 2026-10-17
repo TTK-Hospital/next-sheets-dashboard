@@ -117,6 +117,21 @@ export function isOverSeatCapacity(
  * rule in force when it was made. */
 export type BookingApprovalStatus = "pending" | "approved" | "rejected";
 
+/** การรับทราบ/อนุมัติการเดินทางโดยผู้อำนวยการ (ผอ.) — เพิ่มเข้ามาทีหลัง
+ * approvalStatus/TripOrder เดิมทั้งหมด (ดูคอมเมนต์ยาวที่ Booking.
+ * directorApprovalStatus ด้านล่าง) เป็นเลเยอร์ "รับทราบ" แยกต่างหาก ไม่ใช่
+ * ขั้นอนุมัติที่บังคับก่อนจัดรถ — ตามที่โรงพยาบาลเลือกไว้ชัดเจน (ผอ. จะเห็น
+ * รายการเดินทางหลังจากที่ผู้ดูแลระบบจัดรถ/คนขับเรียบร้อยแล้วเท่านั้น)
+ *
+ * "" — ยังไม่ถึงขั้นที่ ผอ. ต้องรับทราบ (ยัง "รออนุมัติ"/ยังไม่ถูกจัดรถ, เป็นการ
+ * จองห้องประชุม, หรือเป็นการจองรถที่ถูกปฏิเสธไปแล้ว) — ไม่ขึ้นในหน้า ผอ. เลย.
+ * "pending" — จัดรถ/คนขับแล้ว กำลังรอ ผอ. รับทราบ — ตั้งค่านี้ตอนออก/ขยาย
+ * TripOrder (createTripOrder/updateTripOrder ใน lib/sheets.ts).
+ * "approved" / "rejected" — ผอ. กดรับทราบ/ไม่รับทราบแล้ว ผ่านหน้า /director
+ * (ดู setDirectorDecision ใน lib/sheets.ts) — ไม่ย้อนกลับไปกระทบ
+ * approvalStatus/TripOrder เดิมเลย เป็นแค่ชั้นมองเห็นเพิ่มเติมสำหรับ ผอ. */
+export type DirectorApprovalStatus = "" | "pending" | "approved" | "rejected";
+
 /** One booking against one resource, for one time range. Live vs cancelled
  * is tracked separately from approval (cancelledAt is blank while live, set
  * once cancelled — see isBookingCancelled) — a booking can be cancelled
@@ -242,6 +257,13 @@ export interface Booking {
   editedByUsername: string;
   /** Blank alongside editedByUsername; set to the same edit's timestamp. */
   editedAt: string;
+  /** See DirectorApprovalStatus above — "" until a TripOrder dispatches
+   * this car booking, then "pending" until the director acts on it via
+   * /director. Always "" for a room booking. */
+  directorApprovalStatus: DirectorApprovalStatus;
+  /** Blank until the director approves/rejects; set to that decision's
+   * ISO timestamp — same shape as approvedAt above. */
+  directorApprovedAt: string;
 }
 
 /**
@@ -354,6 +376,21 @@ export function bookingStatusLabel(
   if (booking.approvalStatus === "pending") return { text: "รออนุมัติ", tone: "pending" };
   if (booking.approvalStatus === "rejected") return { text: "ไม่อนุมัติ", tone: "rejected" };
   return { text: "อนุญาต", tone: "approved" };
+}
+
+/** Display label + tone for a car booking's director sign-off — separate
+ * from bookingStatusLabel above since this is a sign-off layer on top of
+ * (never a replacement for) the existing approvalStatus/TripOrder flow. "" →
+ * no label at all (not dispatched yet, a room booking, or an already-
+ * rejected car booking) — every call site should skip rendering anything
+ * for that case rather than show a blank chip. */
+export function directorStatusLabel(
+  booking: Pick<Booking, "directorApprovalStatus">
+): { text: string; tone: "pending" | "approved" | "rejected" } | null {
+  if (booking.directorApprovalStatus === "pending") return { text: "ผอ. รอรับทราบ", tone: "pending" };
+  if (booking.directorApprovalStatus === "approved") return { text: "ผอ. รับทราบแล้ว", tone: "approved" };
+  if (booking.directorApprovalStatus === "rejected") return { text: "ผอ. ไม่รับทราบ", tone: "rejected" };
+  return null;
 }
 
 /** Splits a startTime/endTime string ("2026-08-25T14:30", the raw

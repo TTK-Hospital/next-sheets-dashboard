@@ -16,6 +16,7 @@ import {
   type BookingApprovalStatus,
   type BookingResource,
   type BookingResourceType,
+  type DirectorApprovalStatus,
   type Driver,
   type TripOrder,
 } from "@/lib/booking";
@@ -37,6 +38,7 @@ export type {
   BookingApprovalStatus,
   BookingResource,
   BookingResourceType,
+  DirectorApprovalStatus,
   Driver,
   TripOrder,
 };
@@ -342,7 +344,16 @@ export type EditLogAction =
   // editBookingByManagement above and canApproveCarBooking's doc comment in
   // lib/booking.ts for why this is the one deliberate exception to "the
   // original request is never edited".
-  | "แก้ไขข้อมูลการจองโดยฝ่ายบริหาร";
+  | "แก้ไขข้อมูลการจองโดยฝ่ายบริหาร"
+  // หน้า /director (ดู src/app/director/page.tsx) — ผอ. ล็อกอิน/รีเซ็ตรหัสผ่าน
+  // /รับทราบการเดินทางด้วยตัวเอง ใช้ actor "ผอ." เสมอ (มีผู้ใช้คนเดียว ไม่มี
+  // username ให้บอกต่างจากนี้ — ดูคอมเมนต์หัวไฟล์ lib/directorAuth.ts).
+  | "ผอ. เข้าสู่ระบบสำเร็จ"
+  | "ผอ. เข้าสู่ระบบล้มเหลว"
+  | "ผอ. รีเซ็ตรหัสผ่านสำเร็จ"
+  | "ผอ. รีเซ็ตรหัสผ่านล้มเหลว"
+  | "ผอ. รับทราบการเดินทาง"
+  | "ผอ. ไม่รับทราบการเดินทาง";
 
 /** Appends one row to the EditLog tab — header row (created ahead of time
  * by the sheet owner, not by this app; see the project setup notes) must be:
@@ -1648,6 +1659,11 @@ const BOOKINGS_HEADER_ROW = [
   // back as "never edited by management" (see rowToBooking/
   // editBookingByManagement below).
   "EditedByUsername", "EditedAt",
+  // Added for the director (ผอ.) sign-off layer — same manual-add
+  // convention as above; blank X/Y cells read back as "" (not yet
+  // dispatched / not applicable), see parseDirectorApprovalStatus and the
+  // DirectorApprovalStatus doc comment in lib/booking.ts.
+  "DirectorApprovalStatus", "DirectorApprovedAt",
 ];
 
 function getBookingResourcesTab(): string {
@@ -1693,6 +1709,16 @@ function parseApprovalStatus(raw: string): BookingApprovalStatus {
   return v === "pending" || v === "rejected" ? v : "approved";
 }
 
+/** Unlike parseApprovalStatus above, a blank cell here genuinely means ""
+ * (not applicable yet) rather than defaulting to some other state — every
+ * row written before this column existed, and every room booking, is
+ * correctly "" either way (see the DirectorApprovalStatus doc comment in
+ * lib/booking.ts). */
+function parseDirectorApprovalStatus(raw: string): DirectorApprovalStatus {
+  const v = raw.trim();
+  return v === "pending" || v === "approved" || v === "rejected" ? v : "";
+}
+
 function rowToBooking(row: string[]): Booking {
   const col = (i: number) => (row[i] ?? "").toString();
   return {
@@ -1719,6 +1745,8 @@ function rowToBooking(row: string[]): Booking {
     tripOrderId: col(20).trim(),
     editedByUsername: col(21),
     editedAt: col(22),
+    directorApprovalStatus: parseDirectorApprovalStatus(col(23)),
+    directorApprovedAt: col(24),
   };
 }
 
@@ -1728,7 +1756,7 @@ function bookingToRow(b: Booking): (string | number)[] {
     b.purpose, b.destination, b.participants, b.contactPhone, b.bookedByUsername,
     b.bookedByDisplayName, b.department, b.createdAt, b.cancelledAt, b.cancelledByUsername,
     b.approvalStatus, b.approvedAt, b.approvedByUsername, b.companions, b.tripOrderId,
-    b.editedByUsername, b.editedAt,
+    b.editedByUsername, b.editedAt, b.directorApprovalStatus, b.directorApprovedAt,
   ];
 }
 
@@ -2034,7 +2062,7 @@ export async function getBookings(): Promise<Booking[]> {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:W100000`,
+      range: `${tab}!A2:Y100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2124,6 +2152,8 @@ export async function createBooking(input: {
     tripOrderId: "",
     editedByUsername: "",
     editedAt: "",
+    directorApprovalStatus: "",
+    directorApprovedAt: "",
   };
 
   try {
@@ -2174,7 +2204,7 @@ export async function cancelBooking(bookingId: string, cancelledByUsername: stri
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:W100000`,
+      range: `${tab}!A2:Y100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2197,7 +2227,7 @@ export async function cancelBooking(bookingId: string, cancelledByUsername: stri
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:W${sheetRow}`,
+      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2235,7 +2265,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:W100000`,
+      range: `${tab}!A2:Y100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2266,7 +2296,7 @@ export async function rejectCarBooking(bookingId: string, rejectedByUsername: st
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:W${sheetRow}`,
+      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2315,7 +2345,7 @@ export async function editBookingByManagement(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tab}!A2:W100000`,
+      range: `${tab}!A2:Y100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2355,7 +2385,7 @@ export async function editBookingByManagement(
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A${sheetRow}:W${sheetRow}`,
+      range: `${tab}!A${sheetRow}:Y${sheetRow}`,
       // RAW — see the note on createBooking's append() above.
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(merged)] },
@@ -2585,7 +2615,7 @@ export async function createTripOrder(input: {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${bookingsTab}!A2:W100000`,
+      range: `${bookingsTab}!A2:Y100000`,
     });
     values = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2653,6 +2683,11 @@ export async function createTripOrder(input: {
     approvedAt: tripOrder.createdAt,
     approvedByUsername: input.createdByUsername,
     tripOrderId: tripOrder.tripOrderId,
+    // รถ/คนขับถูกจัดแล้ว — เข้าคิวรอ ผอ. รับทราบ (ดู DirectorApprovalStatus ใน
+    // lib/booking.ts) เฉพาะการจองรถเท่านั้น (ฟังก์ชันนี้คัดแต่ resourceType
+    // "car" ไว้แล้วที่ด้านบน) — ไม่กระทบ approvalStatus/TripOrder เดิมเลย.
+    directorApprovalStatus: "pending",
+    directorApprovedAt: "",
   }));
 
   try {
@@ -2661,7 +2696,7 @@ export async function createTripOrder(input: {
       requestBody: {
         valueInputOption: "RAW",
         data: targets.map(({ rowIndex }, i) => ({
-          range: `${bookingsTab}!A${rowIndex + 2}:W${rowIndex + 2}`,
+          range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
           values: [bookingToRow(updatedBookings[i])],
         })),
       },
@@ -2757,7 +2792,7 @@ export async function updateTripOrder(
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${bookingsTab}!A2:W100000`,
+        range: `${bookingsTab}!A2:Y100000`,
       });
       bookingValues = res.data.values as string[][] | undefined;
     } catch (err: unknown) {
@@ -2819,6 +2854,10 @@ export async function updateTripOrder(
       approvedAt,
       approvedByUsername: actorUsername,
       tripOrderId: merged.tripOrderId,
+      // เพิ่มเข้าใบสั่งงานที่จัดรถ/คนขับแล้ว — เข้าคิวรอ ผอ. รับทราบเหมือนกับ
+      // createTripOrder ด้านบน.
+      directorApprovalStatus: "pending",
+      directorApprovedAt: "",
     }));
     try {
       await sheets.spreadsheets.values.batchUpdate({
@@ -2826,7 +2865,7 @@ export async function updateTripOrder(
         requestBody: {
           valueInputOption: "RAW",
           data: bookingTargets.map(({ rowIndex }, i) => ({
-            range: `${bookingsTab}!A${rowIndex + 2}:W${rowIndex + 2}`,
+            range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
             values: [bookingToRow(addedBookings[i])],
           })),
         },
@@ -2907,7 +2946,7 @@ export async function splitBookingFromTripOrder(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${bookingsTab}!A2:W100000`,
+      range: `${bookingsTab}!A2:Y100000`,
     });
     bookingValues = res.data.values as string[][] | undefined;
   } catch (err: unknown) {
@@ -2939,6 +2978,10 @@ export async function splitBookingFromTripOrder(
     tripOrderId: "",
     editedByUsername: actorUsername,
     editedAt,
+    // แยกออกจากใบสั่งงานแล้ว — ไม่มีการจัดรถ/คนขับรองรับอีกต่อไป จึงไม่มีอะไร
+    // ให้ ผอ. รับทราบแล้ว กลับไปเป็น "" เหมือนคำขอที่สร้างใหม่.
+    directorApprovalStatus: "",
+    directorApprovedAt: "",
   };
 
   const tripSheetRow = tripIdx + 2;
@@ -2959,7 +3002,7 @@ export async function splitBookingFromTripOrder(
   try {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${bookingsTab}!A${bookingSheetRow}:W${bookingSheetRow}`,
+      range: `${bookingsTab}!A${bookingSheetRow}:Y${bookingSheetRow}`,
       valueInputOption: "RAW",
       requestBody: { values: [bookingToRow(updatedBooking)] },
     });
@@ -2976,4 +3019,189 @@ export async function splitBookingFromTripOrder(
   }
 
   return { tripOrder: updatedTripOrder, booking: updatedBooking };
+}
+
+/**
+ * หน้า /director (ดู src/app/director/page.tsx) — รายการจองรถที่ "รอ ผอ.
+ * รับทราบ" (directorApprovalStatus === "pending") พร้อมข้อมูลรถ/คนขับ/ช่วงเวลา
+ * ที่จัดไว้แล้วจาก TripOrder ที่ครอบคลุม — คัดมาเฉพาะเท่าที่ ผอ. ต้องเห็นจริงๆ
+ * (ตามที่ขอ "ไม่มีรายละเอียดเยอะเกินความจำเป็น") ไม่ใช่ Booking/TripOrder เต็ม
+ * รูปแบบ. อ่าน getBookings + getTripOrders ตรงๆ แทนการเพิ่ม range พิเศษ — ทั้ง
+ * สองฟังก์ชันนี้ก็ต้องอ่านทั้งแท็บอยู่แล้วเหมือนกัน (ไม่มี caching ในชั้นนี้ของ
+ * แอป ดูคอมเมนต์ที่ cachedAuth ด้านบนว่าแคชแค่ตัว auth client เท่านั้น) จึงไม่
+ * ได้แพงขึ้นกว่าการเรียก 2 ครั้งตรงๆ แบบนี้.
+ */
+export interface DirectorTripItem {
+  bookingId: string;
+  tripOrderId: string;
+  purpose: string;
+  destination: string;
+  participants: number;
+  startTime: string;
+  endTime: string;
+  bookedByDisplayName: string;
+  department: string;
+  resourceName: string;
+  driverName: string;
+  companions: string;
+}
+
+export async function getDirectorPendingTrips(): Promise<DirectorTripItem[]> {
+  const [bookings, tripOrders] = await Promise.all([getBookings(), getTripOrders()]);
+  const tripOrderById = new Map(tripOrders.map((t) => [t.tripOrderId, t]));
+
+  return bookings
+    .filter((b) => b.directorApprovalStatus === "pending" && !isBookingCancelled(b))
+    .map((b) => {
+      const trip = tripOrderById.get(b.tripOrderId);
+      return {
+        bookingId: b.bookingId,
+        tripOrderId: b.tripOrderId,
+        purpose: b.purpose,
+        destination: b.destination,
+        participants: b.participants,
+        // ช่วงเวลาที่ TripOrder จัดจริง (อาจต่างจากที่ขอมาตอนแรก) — ถ้าหา
+        // TripOrder ไม่เจอ (ไม่ควรเกิดขึ้น แต่กันพลาด) ใช้ช่วงเวลาที่ขอมาแทน.
+        startTime: trip?.startTime || b.startTime,
+        endTime: trip?.endTime || b.endTime,
+        bookedByDisplayName: b.bookedByDisplayName,
+        department: b.department,
+        resourceName: trip?.resourceName || b.resourceName,
+        driverName: trip?.driverName || "",
+        companions: b.companions,
+      };
+    })
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+/** ผอ. กดรับทราบ/ไม่รับทราบ — ทีละรายการหรือหลายรายการพร้อมกันก็ได้ (ตามที่
+ * ขอ "คลิ๊กไม่กี่คลิ๊กสามารถอนุมัติรายการเดินทางหลายรายการได้ในครั้งเดียว")
+ * เขียนทีละแถวผ่าน batchUpdate เหมือน createTripOrder ด้านบน. รายการที่หา
+ * ไม่เจอ หรือไม่ได้อยู่ในสถานะ "pending" แล้ว (เช่นถูกแยกออกจากใบสั่งงาน หรือ
+ * ผอ. อีกแท็บ/อีกครั้งกดไปแล้ว) ถูกข้ามอย่างเงียบๆ แทนการ throw ทั้งชุด — เพราะ
+ * นี่เป็นการกดยืนยันหลายรายการพร้อมกัน รายการเดียวที่ค้างไม่ควรทำให้รายการที่
+ * เหลือกดไม่ติดไปด้วย. คืนรายการ bookingId ที่ตั้งค่าสำเร็จจริงกลับไป ให้ฝั่ง
+ * UI รู้ว่ารายการไหนหลุดไปบ้าง. */
+export async function setDirectorDecision(
+  bookingIds: string[],
+  decision: "approved" | "rejected"
+): Promise<{ updatedBookingIds: string[] }> {
+  if (bookingIds.length === 0) return { updatedBookingIds: [] };
+
+  const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
+  const bookingsTab = getBookingsTab();
+  const sheets = google.sheets({ version: "v4", auth: sheetsAuth() });
+
+  let values: string[][] | undefined;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${bookingsTab}!A2:Y100000`,
+    });
+    values = res.data.values as string[][] | undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`อ่านรายการจองไม่สำเร็จ: ${message}`);
+  }
+  const rows = values ?? [];
+  const decidedAt = new Date().toISOString();
+
+  const targets: { rowIndex: number; booking: Booking }[] = [];
+  for (const bookingId of bookingIds) {
+    const idx = rows.findIndex((row) => (row[0] ?? "").toString().trim() === bookingId);
+    if (idx === -1) continue;
+    const booking = rowToBooking(rows[idx]);
+    if (booking.directorApprovalStatus !== "pending") continue;
+    targets.push({ rowIndex: idx, booking });
+  }
+  if (targets.length === 0) return { updatedBookingIds: [] };
+
+  try {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "RAW",
+        data: targets.map(({ rowIndex, booking }) => ({
+          range: `${bookingsTab}!A${rowIndex + 2}:Y${rowIndex + 2}`,
+          values: [
+            bookingToRow({
+              ...booking,
+              directorApprovalStatus: decision,
+              directorApprovedAt: decidedAt,
+            }),
+          ],
+        })),
+      },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`บันทึกการรับทราบของ ผอ. ไม่สำเร็จ: ${message}`);
+  }
+
+  return { updatedBookingIds: targets.map((t) => t.booking.bookingId) };
+}
+
+/** รหัสผ่านของหน้า ผอ. (/director) — เก็บแบบ key/value แท็บเดียวกับ
+ * ReportSettings/SpecStandards ด้านบน (รูปแบบเดียวกันทั้งแอป) เพื่อให้ ผอ.
+ * เปลี่ยนรหัสผ่านเองได้ผ่าน /api/director/reset-password โดยไม่ต้องพึ่ง env
+ * var ซึ่งแก้ตอน runtime ไม่ได้ (บน Vercel). ถ้าแท็บนี้ยังไม่มี/ยังไม่มีแถว
+ * passwordHash เลย ถือว่า "ยังไม่ตั้งรหัสเอง" — ฝั่ง login จะ fallback ไปใช้
+ * DIRECTOR_BOOTSTRAP_PASSWORD_HASH (env var) แทน เหมือน bootstrap superadmin
+ * (ดู checkBootstrapAccount ใน api/auth/login/route.ts) — มีรหัสผ่านให้เข้า
+ * เสมอตั้งแต่วันแรกที่ deploy แม้ยังไม่เคยกด "เปลี่ยนรหัสผ่าน" เลยก็ตาม. */
+function getDirectorSettingsTab(): string {
+  return process.env.GOOGLE_SHEET_DIRECTOR_SETTINGS_TAB?.trim() || "DirectorSettings";
+}
+
+export async function getDirectorPasswordHash(): Promise<string> {
+  const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
+  const tab = getDirectorSettingsTab();
+  const sheets = google.sheets({ version: "v4", auth: sheetsAuth() });
+
+  let values: string[][] | undefined;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${tab}!A2:B10`,
+    });
+    values = res.data.values as string[][] | undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("Unable to parse range")) return ""; // แท็บยังไม่มี
+    throw new Error(`อ่านการตั้งค่า ผอ. ไม่สำเร็จ: ${message}`);
+  }
+  for (const row of values ?? []) {
+    if ((row[0] ?? "").toString().trim() === "passwordHash") {
+      return (row[1] ?? "").toString().trim();
+    }
+  }
+  return "";
+}
+
+/** เขียนทับทั้งแท็บเสมอ (มีแค่แถวเดียวที่ใช้จริง) — ต้องมีแท็บ "DirectorSettings"
+ * อยู่ก่อนแล้ว (เหมือนแท็บอื่นๆ ในแอปนี้ — values.update ไม่สร้างแท็บใหม่ให้
+ * เอง ต่างจาก append ซึ่งสร้าง range ใหม่ในแท็บที่มีอยู่แล้วได้) — ให้ error
+ * ชัดเจนบอกให้สร้างแท็บก่อนถ้ายังไม่มี เหมือน createTripOrder/createBooking
+ * ด้านบน. */
+export async function setDirectorPasswordHash(hash: string): Promise<void> {
+  const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
+  const tab = getDirectorSettingsTab();
+  const sheets = google.sheets({ version: "v4", auth: sheetsAuth() });
+
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${tab}!A2:B2`,
+      valueInputOption: "RAW",
+      requestBody: { values: [["passwordHash", hash]] },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("Unable to parse range")) {
+      throw new Error(
+        `ยังไม่พบแท็บชื่อ "${tab}" ในสเปรดชีต — สร้างแท็บนี้ก่อน (หัวตาราง: key | value) หรือตั้งค่า GOOGLE_SHEET_DIRECTOR_SETTINGS_TAB ให้ตรงกับชื่อแท็บจริง`
+      );
+    }
+    throw new Error(`บันทึกรหัสผ่าน ผอ. ไม่สำเร็จ: ${message}`);
+  }
 }
