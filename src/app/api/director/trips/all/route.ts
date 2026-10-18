@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  DIRECTOR_SESSION_COOKIE,
-  getDirectorSessionRemember,
-  setDirectorSessionCookie,
-  verifyDirectorSessionToken,
-} from "@/lib/directorAuth";
+import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
 import { getDirectorAllTrips } from "@/lib/sheets";
 
 // ข้อมูลเปลี่ยนได้ตลอด เหมือน ../route.ts (รายการรออนุมัติ) — ห้าม cache
@@ -27,9 +22,7 @@ export async function GET(request: NextRequest) {
   try {
     const trips = await getDirectorAllTrips();
     const response = NextResponse.json({ trips });
-    // ต้องส่ง remember เดิมของ token นี้ต่อไปด้วย เหมือน ../route.ts — ดู
-    // คอมเมนต์ที่นั่นและที่ getDirectorSessionRemember ใน lib/directorAuth.ts
-    setDirectorSessionCookie(response, getDirectorSessionRemember(token));
+    setDirectorSessionCookie(response);
     return response;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

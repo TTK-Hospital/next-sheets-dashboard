@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { canApproveCarBooking, formatBookingDateTime } from "@/lib/booking";
 import { appendEditLog, getBookingResources, splitBookingFromTripOrder, updateTripOrder } from "@/lib/sheets";
-import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
+import { directorApprovalUrl, driverCalendarUrl, notifyDirector, notifyDriverGroup } from "@/lib/lineNotify";
 
 export const dynamic = "force-dynamic";
 
@@ -222,6 +222,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           : "") +
         `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
     );
+
+    // แจ้ง ผอ. เฉพาะตอนมีคำขอใหม่ถูกเพิ่มเข้าใบสั่งงานนี้เท่านั้น (addedBookings)
+    // — เพราะเฉพาะคำขอที่เพิ่มใหม่เท่านั้นที่กลายเป็น "รอ ผอ. อนุมัติ" รอบใหม่
+    // (ดู updateTripOrder ใน lib/sheets.ts) การแก้แค่รถ/คนขับ/เวลา/หมายเหตุของ
+    // ใบสั่งงานเดิมไม่กระทบ directorApprovalStatus ของคำขอที่ครอบคลุมอยู่แล้ว
+    // เลย (มันรออยู่แบบเดิมอยู่แล้ว ไม่ใช่รายการใหม่ที่ ผอ. ยังไม่เคยรับรู้) ดู
+    // คอมเมนต์เต็มที่ notifyDirector ใน lib/lineNotify.ts
+    if (addedBookings.length > 0) {
+      void notifyDirector(
+        `🔔 มีรายการจัดรถรออนุมัติเพิ่มเติม\n` +
+          `รถ: ${updated.resourceName}\n` +
+          `คนขับ: ${updated.driverName || "—"}\n` +
+          `ออกเดินทาง: ${formatBookingDateTime(updated.startTime)}\n` +
+          `เพิ่มคำขอใหม่เข้ามารออนุมัติ ${addedBookings.length.toLocaleString("th-TH")} รายการ\n` +
+          `ดูรายละเอียด: ${directorApprovalUrl(request.nextUrl.origin)}`
+      );
+    }
 
     return NextResponse.json({ tripOrder: updated, addedBookings });
   } catch (err: unknown) {

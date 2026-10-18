@@ -1,15 +1,24 @@
 /**
- * ส่งข้อความ push เข้ากลุ่ม LINE ของพนักงานขับรถ ผ่าน LINE Messaging API (ไม่ใช่
- * LINE Notify ซึ่งถูกปิดให้บริการไปแล้วตั้งแต่ 31 มี.ค. 2568 — ดูรายละเอียด
- * สถาปัตยกรรมเต็มๆ ใน docs/line-driver-notify-plan.md)
+ * ส่งข้อความ push เข้า LINE ผ่าน LINE Messaging API (ไม่ใช่ LINE Notify ซึ่งถูก
+ * ปิดให้บริการไปแล้วตั้งแต่ 31 มี.ค. 2568 — ดูรายละเอียดสถาปัตยกรรมเต็มๆ ใน
+ * docs/line-driver-notify-plan.md) — ใช้ channel เดียวกัน (LINE_CHANNEL_ACCESS_TOKEN)
+ * ยิงไปสองปลายทางที่แยกจากกัน: กลุ่มคนขับ (notifyDriverGroup) และ ผอ. โดยตรง
+ * (notifyDirector — เพิ่มทีหลัง ตามที่ขอ "อยากให้มีการแจ้งเตือนทาง line ให้กับ
+ * ผอ.ได้รับทราบว่ามีการขอรถเข้ามาด้วยครับ" เมื่อฝ่ายบริหารจัดรถเสร็จและส่ง
+ * รายการรอ ผอ. อนุมัติ).
  *
- * ต้องตั้งค่า environment variables สองตัวก่อนใช้งานได้จริง (ดูขั้นตอนเต็มใน
- * เอกสารข้างต้น — ต้องสร้าง LINE Official Account + เปิด Messaging API +
- * เชิญเข้ากลุ่มคนขับ + ดึง Group ID มาก่อน ไม่ใช่งานที่ทำในโค้ดนี้ได้):
- *   - LINE_CHANNEL_ACCESS_TOKEN — token ของ Messaging API channel
+ * ต้องตั้งค่า environment variables ก่อนใช้งานได้จริง (ดูขั้นตอนเต็มใน
+ * เอกสารข้างต้น — ต้องสร้าง LINE Official Account + เปิด Messaging API ก่อน
+ * ไม่ใช่งานที่ทำในโค้ดนี้ได้):
+ *   - LINE_CHANNEL_ACCESS_TOKEN — token ของ Messaging API channel (ใช้ร่วมกันทั้งสองปลายทาง)
  *   - LINE_DRIVER_GROUP_ID — Group ID ของกลุ่ม LINE คนขับที่เชิญบอทเข้าไปแล้ว
+ *   - LINE_DIRECTOR_USER_ID — LINE user ID ของ ผอ. (แชท 1-1 กับ OA โดยตรง — เพิ่ม
+ *     เพื่อนกับ OA นี้แล้วดึง userId ออกมาด้วยวิธีเดียวกับที่เอกสารข้างต้นแนะนำ
+ *     สำหรับ groupId ก็ใช้ได้ — LINE push API รับ "to" เป็นได้ทั้ง userId/groupId
+ *     เหมือนกัน จะตั้งเป็น group ที่ ผอ. อยู่ด้วยก็ได้ ไม่จำเป็นต้องเป็น userId
+ *     ส่วนตัวเท่านั้น)
  *
- * ตั้งใจให้ "best-effort" เสมอ — ยังไม่ได้ตั้งค่า env var ทั้งสองตัวนี้ก็ไม่ใช่
+ * ตั้งใจให้ "best-effort" เสมอ — ยังไม่ได้ตั้งค่า env var ที่จำเป็นก็ไม่ใช่
  * ข้อผิดพลาด (ข้ามเงียบๆ ระบบจองยังทำงานปกติทุกอย่าง แค่ไม่มีข้อความเด้งไป
  * LINE เท่านั้น) และถ้าเรียก LINE API แล้วล้มเหลว (token หมดอายุ, โควตาเต็ม,
  * เครือข่ายมีปัญหา) ก็จะไม่ throw ออกไปให้ผู้เรียกเห็นเช่นกัน — แค่ log ไว้ กัน
@@ -24,6 +33,33 @@ const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
 // ปลายทิ้งเป็นเกราะป้องกันสุดท้าย ไม่ควรมีข้อความไหนในระบบนี้ยาวขนาดนั้นจริงๆ
 // อยู่แล้ว แต่กันไว้ไม่ให้ทั้งคำขอ push ถูก LINE ปฏิเสธเพราะยาวเกิน
 const LINE_TEXT_MAX_LENGTH = 5000;
+
+/** ยิง LINE push message หนึ่งข้อความไปที่ targetId (userId หรือ groupId ก็ได้
+ * — LINE API ไม่แยกฟอร์แมต) — ใช้ภายในไฟล์นี้เท่านั้น ทั้ง notifyDriverGroup และ
+ * notifyDirector ด้านล่างเรียกตัวนี้ตัวเดียว กัน fetch/error-handling ซ้ำกันสอง
+ * ที่ ดูคอมเมนต์หัวไฟล์สำหรับ contract เต็มๆ (ไม่ throw) */
+async function pushLineMessage(targetId: string, text: string): Promise<void> {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  try {
+    const res = await fetch(LINE_PUSH_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        to: targetId,
+        messages: [{ type: "text", text: text.slice(0, LINE_TEXT_MAX_LENGTH) }],
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[lineNotify] LINE push ล้มเหลว (${res.status}): ${body}`);
+    }
+  } catch (err: unknown) {
+    console.error("[lineNotify] เรียก LINE API ไม่สำเร็จ:", err);
+  }
+}
 
 /** ส่งข้อความ text หนึ่งข้อความเข้ากลุ่มคนขับที่ตั้งค่าไว้ (LINE_DRIVER_GROUP_ID)
  * — ดูคอมเมนต์หัวไฟล์สำหรับ contract เต็มๆ (ไม่ throw, ข้ามเงียบๆ ถ้ายังไม่ได้
@@ -40,26 +76,25 @@ export async function notifyDriverGroup(text: string): Promise<void> {
     // docs/line-driver-notify-plan.md)
     return;
   }
+  await pushLineMessage(groupId, text);
+}
 
-  try {
-    const res = await fetch(LINE_PUSH_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        to: groupId,
-        messages: [{ type: "text", text: text.slice(0, LINE_TEXT_MAX_LENGTH) }],
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[lineNotify] LINE push ล้มเหลว (${res.status}): ${body}`);
-    }
-  } catch (err: unknown) {
-    console.error("[lineNotify] เรียก LINE API ไม่สำเร็จ:", err);
+/** ส่งข้อความ text หนึ่งข้อความให้ ผอ. โดยเฉพาะ (LINE_DIRECTOR_USER_ID) — แยก
+ * ปลายทางจาก notifyDriverGroup ข้างบน (คนละผู้รับ คนละ env var) แต่ใช้ channel
+ * access token ตัวเดียวกัน เพิ่มเข้ามาตามที่ขอ "อยากให้มีการแจ้งเตือนทาง line
+ * ให้กับผอ.ได้รับทราบว่ามีการขอรถเข้ามาด้วยครับ" — เรียกจาก route ที่ฝ่าย
+ * บริหารออกใบสั่งงาน/เพิ่มคำขอเข้าใบสั่งงานเดิม (ดู
+ * src/app/api/booking/trip-orders/route.ts และ .../[tripOrderId]/route.ts)
+ * ทุกครั้งที่มีคำขอเข้าคิว "รอ ผอ. อนุมัติ" ใหม่ (directorApprovalStatus เปลี่ยน
+ * เป็น "pending") เช่นเดียวกับ notifyDriverGroup — ไม่ throw, ข้ามเงียบๆ ถ้า
+ * ยังไม่ได้ตั้งค่า */
+export async function notifyDirector(text: string): Promise<void> {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const targetId = process.env.LINE_DIRECTOR_USER_ID;
+  if (!token || !targetId) {
+    return;
   }
+  await pushLineMessage(targetId, text);
 }
 
 /** URL เต็มของหน้าปฏิทินงานคนขับ (/driver) — คำนวณจาก origin ของคำขอที่กำลัง
@@ -73,4 +108,13 @@ export async function notifyDriverGroup(text: string): Promise<void> {
 export function driverCalendarUrl(origin: string): string {
   const path = process.env.DRIVER_CALENDAR_PATH || "/driver";
   return `${origin}${path}`;
+}
+
+/** URL เต็มของหน้าอนุมัติของ ผอ. (/director) — หลักการเดียวกับ driverCalendarUrl
+ * ข้างบนทุกประการ (คำนวณจาก origin ของ request ไม่ใช่ env var ใหม่) แนบไปกับ
+ * ข้อความแจ้งเตือนของ notifyDirector ให้กดเข้าไปอนุมัติได้ทันที — หน้านี้ยังต้อง
+ * ล็อกอินด้วยรหัสผ่านอยู่เสมอ (ดู lib/directorAuth.ts) ลิงก์นี้แค่พาไปหน้า
+ * login เท่านั้น ไม่ได้ bypass การล็อกอิน */
+export function directorApprovalUrl(origin: string): string {
+  return `${origin}/director`;
 }

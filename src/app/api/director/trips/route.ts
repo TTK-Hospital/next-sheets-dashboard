@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  DIRECTOR_SESSION_COOKIE,
-  getDirectorSessionRemember,
-  setDirectorSessionCookie,
-  verifyDirectorSessionToken,
-} from "@/lib/directorAuth";
+import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
 import { getDirectorPendingTrips } from "@/lib/sheets";
 
 // ข้อมูลเปลี่ยนได้ตลอด (มีรายการใหม่ทุกครั้งที่ผู้ดูแลระบบจัดรถ) — ห้าม cache
@@ -25,10 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     const trips = await getDirectorPendingTrips();
     const response = NextResponse.json({ trips });
-    // sliding idle timeout — ดูคอมเมนต์ setDirectorSessionCookie ต้องส่ง
-    // remember เดิมของ token นี้ต่อไปด้วยเสมอ ไม่งั้นตัวเลือก "จำรหัสผ่าน" จะ
-    // หมดผลตั้งแต่ poll ครั้งแรกหลัง login (ดูคอมเมนต์ที่ getDirectorSessionRemember)
-    setDirectorSessionCookie(response, getDirectorSessionRemember(token));
+    setDirectorSessionCookie(response); // sliding idle timeout
     return response;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

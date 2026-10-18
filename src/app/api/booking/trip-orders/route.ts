@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { canApproveCarBooking, formatBookingDateTime } from "@/lib/booking";
 import { appendEditLog, createTripOrder, getBookingResources, getTripOrders } from "@/lib/sheets";
-import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
+import { directorApprovalUrl, driverCalendarUrl, notifyDirector, notifyDriverGroup } from "@/lib/lineNotify";
 
 // Always live — see the identical comment on ../bookings/route.ts: a
 // dispatch changes what's still "pending" for every viewer, so this must
@@ -149,6 +149,20 @@ export async function POST(request: NextRequest) {
         `ออกเดินทาง: ${formatBookingDateTime(tripOrder.startTime)}\n` +
         `ผู้โดยสารรวม: ${totalParticipants.toLocaleString("th-TH")} คน\n` +
         `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
+    );
+
+    // แจ้งเตือน ผอ. ว่ามีรายการจัดรถใหม่เข้ามารออนุมัติ — best-effort เหมือนกัน
+    // (ดูคอมเมนต์หัวไฟล์ lib/lineNotify.ts) ตามที่ขอ "อยากให้มีการแจ้งเตือนทาง
+    // line ให้กับผอ.ได้รับทราบว่ามีการขอรถเข้ามาด้วยครับ" — จ่ายรถเสร็จแล้ว
+    // ทุกคำขอใน bookings กลายเป็น "รอ ผอ. อนุมัติ" ทันที (ดู createTripOrder ใน
+    // lib/sheets.ts) จึงแจ้งทุกครั้งที่ endpoint นี้สำเร็จ ไม่ต้องกรองเพิ่ม
+    void notifyDirector(
+      `🔔 มีรายการจัดรถรออนุมัติ\n` +
+        `รถ: ${tripOrder.resourceName}\n` +
+        `คนขับ: ${tripOrder.driverName || "—"}\n` +
+        `ออกเดินทาง: ${formatBookingDateTime(tripOrder.startTime)}\n` +
+        `${bookings.length.toLocaleString("th-TH")} คำขอรออนุมัติ\n` +
+        `ดูรายละเอียด: ${directorApprovalUrl(request.nextUrl.origin)}`
     );
 
     return NextResponse.json({ tripOrder, bookings });

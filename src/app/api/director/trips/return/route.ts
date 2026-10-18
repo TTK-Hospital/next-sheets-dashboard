@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import {
-  DIRECTOR_SESSION_COOKIE,
-  getDirectorSessionRemember,
-  setDirectorSessionCookie,
-  verifyDirectorSessionToken,
-} from "@/lib/directorAuth";
+import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
 import { appendEditLog, returnTripToDispatch } from "@/lib/sheets";
 import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
 
@@ -70,9 +65,7 @@ export async function POST(request: NextRequest) {
     );
 
     const response = NextResponse.json({ ok: true, tripOrder, bookings });
-    // ต้องส่ง remember เดิมของ token นี้ต่อไปด้วย — ดูคอมเมนต์ที่
-    // getDirectorSessionRemember ใน lib/directorAuth.ts
-    setDirectorSessionCookie(response, getDirectorSessionRemember(token));
+    setDirectorSessionCookie(response);
     return response;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
