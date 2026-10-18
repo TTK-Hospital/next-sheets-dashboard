@@ -49,11 +49,26 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     });
 
     // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort (ดูคอมเมนต์หัวไฟล์
-    // lib/lineNotify.ts) เฉพาะตอนคำขอที่ถูกยกเลิกเป็นการจองรถที่ "จ่ายรถแล้ว"
-    // จริงๆ (มี tripOrderId อยู่ — ยังรออนุมัติ/ถูกปฏิเสธไปแล้วไม่ต้องแจ้ง เพราะ
-    // ไม่เคยเป็นงานจริงของคนขับตั้งแต่แรก) — cancelBooking ไม่แตะ tripOrderId
-    // เลย (ดูคอมเมนต์ที่ฟังก์ชันนั้นใน lib/sheets.ts) จึงยังอ่านค่าเดิมได้ตรงนี้
-    if (cancelled.resourceType === "car" && cancelled.tripOrderId) {
+    // lib/lineNotify.ts) เฉพาะตอนคำขอที่ถูกยกเลิกเป็นการจองรถที่คนขับ "รู้จัก
+    // อยู่แล้ว" จริงๆ เท่านั้น — คือมี tripOrderId (จ่ายรถแล้ว) **และ** ตัวมันเอง
+    // หรือคำขออื่นที่เหลือในเที่ยวเดียวกันมีอย่างน้อย 1 รายการที่ ผอ. อนุมัติไป
+    // แล้ว (directorApprovalStatus === "approved") ตามลำดับขั้นตอนจริงที่
+    // โรงพยาบาลยืนยัน (คนขับรับงานจากรายการที่ ผอ. อนุมัติแล้วเท่านั้น — ดู
+    // คอมเมนต์ที่ getDriverTrips ใน lib/sheets.ts) ถ้ายังรอ ผอ. อนุมัติ/ถูก
+    // ปฏิเสธ/ตีกลับไปแล้วไม่ต้องแจ้ง เพราะไม่เคยเป็นงานจริงของคนขับตั้งแต่แรก —
+    // cancelBooking ไม่แตะ directorApprovalStatus/tripOrderId เลย (ดูคอมเมนต์
+    // ที่ฟังก์ชันนั้นใน lib/sheets.ts) จึงยังอ่านค่าเดิมของ cancelled ได้ตรงนี้
+    // ส่วน `bookings` (โหลดไว้ก่อนยกเลิกด้านบน) ใช้เช็คคำขออื่นที่เหลือในเที่ยว
+    // เดียวกันได้โดยไม่ต้องยิง Sheets API เพิ่ม
+    const knownToDriver =
+      cancelled.directorApprovalStatus === "approved" ||
+      bookings.some(
+        (b) =>
+          b.bookingId !== cancelled.bookingId &&
+          b.tripOrderId === cancelled.tripOrderId &&
+          b.directorApprovalStatus === "approved"
+      );
+    if (cancelled.resourceType === "car" && cancelled.tripOrderId && knownToDriver) {
       // resourceName บนตัว Booking เองยังเป็นชื่อ placeholder ("รอบริหาร
       // จัดสรร") เสมอ แม้จะจ่ายรถไปแล้ว — ชื่อรถ/คนขับจริงอยู่ที่ TripOrder
       // เท่านั้น (ดูคอมเมนต์ที่ createTripOrder ใน lib/sheets.ts) จึงต้องดึง

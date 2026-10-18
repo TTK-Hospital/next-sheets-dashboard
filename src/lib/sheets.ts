@@ -2508,11 +2508,21 @@ export interface DriverTripSummary {
  * GET /api/public/driver-trips (client-side refresh เป็นระยะ) — รวม logic
  * กรอง/แปลงข้อมูลไว้ที่นี่ที่เดียว กันโค้ดสองจุดเพี้ยนไปจากกัน
  *
- * เห็นเฉพาะเที่ยวรถที่ "จ่ายรถแล้ว" เท่านั้น (มีใบสั่งงานคุมอยู่จริง) — คำขอที่
- * ยังรออนุมัติยังไม่ใช่งานจริงของคนขับ จึงไม่แสดง ตัดฟิลด์ที่ไม่จำเป็นต่องาน
- * ขับรถออกทั้งหมด โดยเฉพาะเบอร์โทร/ชื่อผู้จอง (ข้อมูลส่วนบุคคล ไม่จำเป็นต้อง
- * เผยแพร่แบบไม่ล็อกอิน — ถ้าคนขับต้องติดต่อผู้จองให้ประสานผ่านฝ่ายบริหารแทน)
- * เหลือแค่กลุ่มงาน/วัตถุประสงค์/ปลายทาง/จำนวนคน
+ * เห็นเฉพาะคำขอที่ "ผอ. อนุมัติแล้วจริงๆ" เท่านั้น (directorApprovalStatus ===
+ * "approved") — ไม่ใช่แค่ "จ่ายรถแล้ว" (มีใบสั่งงานคุมอยู่) เหมือนเดิมอีกต่อไป
+ * ตามลำดับขั้นตอนจริงของระบบที่โรงพยาบาลยืนยัน (ผู้จอง → ผู้จัด/ฝ่ายบริหาร
+ * ประเมินเบื้องต้น+จัดรถ แต่ไม่มีอำนาจตัดสินใจ → ผอ. ตัดสินใจอนุมัติ/ไม่อนุมัติ/
+ * ตีกลับ → คนขับรับงานจากรายการที่ผอ.อนุมัติแล้วเท่านั้น) คำขอที่ยังรอ ผอ.
+ * อนุมัติ (แม้จะจัดรถ/คนขับไว้แล้วก็ตาม) หรือถูกไม่อนุมัติ/ตีกลับไปแล้ว ยังไม่ใช่
+ * งานจริงของคนขับ จึงไม่แสดง — ตัดฟิลด์ที่ไม่จำเป็นต่องานขับรถออกทั้งหมด
+ * โดยเฉพาะเบอร์โทร/ชื่อผู้จอง (ข้อมูลส่วนบุคคล ไม่จำเป็นต้องเผยแพร่แบบไม่
+ * ล็อกอิน — ถ้าคนขับต้องติดต่อผู้จองให้ประสานผ่านฝ่ายบริหารแทน) เหลือแค่
+ * กลุ่มงาน/วัตถุประสงค์/ปลายทาง/จำนวนคน
+ *
+ * เที่ยวที่มีคำขอหลายรายการ (carpool) แต่ ผอ. อนุมัติแค่บางรายการ จะเห็นเฉพาะ
+ * รายการที่อนุมัติแล้วก่อน ส่วนที่เหลือจะโผล่มาเองทันทีที่ ผอ. อนุมัติตามหลัง
+ * (ดู refresh เป็นระยะของ DriverCalendar.tsx) ไม่ต้องรอให้ทั้งใบสั่งงานอนุมัติ
+ * ครบพร้อมกัน
  *
  * จำกัดช่วงเวลาวันนี้ถึง +lookaheadDays วัน (ตามเขตเวลา Asia/Bangkok — ดู
  * bangkokDateKey ด้านบน) กันข้อมูลย้อนหลังทั้งหมดถูกดึงออกไปโดยไม่จำเป็น —
@@ -2531,7 +2541,7 @@ export async function getDriverTrips(lookaheadDays: number = 14): Promise<Driver
 
     const covered = trip.bookingIds
       .map((id) => bookingById.get(id))
-      .filter((b): b is Booking => !!b && b.resourceType === "car");
+      .filter((b): b is Booking => !!b && b.resourceType === "car" && b.directorApprovalStatus === "approved");
     if (covered.length === 0) continue;
     // ทุกคำขอที่ครอบคลุมถูกยกเลิกหมดแล้ว — ไม่มีเที่ยวจริงเหลือให้คนขับไปแล้ว
     if (covered.every((b) => isBookingCancelled(b))) continue;
@@ -2928,12 +2938,18 @@ export async function updateTripOrder(
  * ถูกแยก — เหตุผลเดียวกับลำดับการเขียนใน createTripOrder ด้านบน (ถ้าขั้นที่สอง
  * ล้มเหลว คำขอยังค้างอยู่ในใบสั่งงานเดิมแบบไม่ต้อง rollback อะไร แค่ retry
  * ฟังก์ชันนี้ใหม่อีกครั้ง)
+ *
+ * คืน `hasApprovedSibling` เพิ่มมาด้วย — ตั้งแต่เปลี่ยนให้คนขับเห็น/ได้รับแจ้ง
+ * เตือนงานเฉพาะหลัง ผอ. อนุมัติแล้วเท่านั้น (ดู getDriverTrips ด้านบน) route
+ * handler ต้องรู้ว่าเที่ยวนี้มีคำขออื่นที่ ผอ. อนุมัติไปแล้วเหลืออยู่หรือไม่ ก่อน
+ * จะตัดสินใจแจ้งกลุ่ม LINE คนขับ (คนขับไม่ควรรู้จักเที่ยวที่ยังไม่มีคำขอไหนผ่าน
+ * ผอ. อนุมัติเลยแม้แต่รายการเดียว) — ดูจุดเรียกใช้ที่ .../[tripOrderId]/route.ts
  */
 export async function splitBookingFromTripOrder(
   tripOrderId: string,
   bookingId: string,
   actorUsername: string
-): Promise<{ tripOrder: TripOrder; booking: Booking }> {
+): Promise<{ tripOrder: TripOrder; booking: Booking; hasApprovedSibling: boolean }> {
   const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
   const tripOrdersTab = getTripOrdersTab();
   const bookingsTab = getBookingsTab();
@@ -3052,7 +3068,18 @@ export async function splitBookingFromTripOrder(
     );
   }
 
-  return { tripOrder: updatedTripOrder, booking: updatedBooking };
+  // เที่ยวนี้มีคำขออื่น (ที่ไม่ใช่ตัวที่เพิ่งแยกออก) ที่ ผอ. อนุมัติไปแล้วเหลือ
+  // อยู่หรือไม่ — ใช้ตัดสินว่าควรแจ้งกลุ่ม LINE คนขับหรือเปล่า (ดูคอมเมนต์ที่จุด
+  // เรียก notifyDriverGroup ใน .../[tripOrderId]/route.ts): ถ้าไม่มีเลยแปลว่า
+  // คนขับยังไม่เคยรู้จักเที่ยวนี้มาก่อน (ยังไม่ผ่าน ผอ. อนุมัติสักคำขอ) จึงไม่ควร
+  // แจ้งอะไรไปตอนนี้ — bookingRows ข้างบนโหลดทั้งแท็บมาแล้ว ใช้สแกนซ้ำได้โดยไม่
+  // ต้องยิง Sheets API เพิ่ม
+  const hasApprovedSibling = updatedTripOrder.bookingIds.some((id) => {
+    const idx = bookingRows.findIndex((row) => (row[0] ?? "").toString().trim() === id);
+    return idx !== -1 && rowToBooking(bookingRows[idx]).directorApprovalStatus === "approved";
+  });
+
+  return { tripOrder: updatedTripOrder, booking: updatedBooking, hasApprovedSibling };
 }
 
 /**
@@ -3217,13 +3244,20 @@ export async function getDirectorAllTrips(): Promise<DirectorTripItem[]> {
  * สำเร็จ ("" ถ้าไม่ได้กรอก) ตามที่ขอเพิ่ม "ช่องที่ผอ.ท่านสามารถชี้แจงเหตุผลกับ
  * ผู้จองว่าทำไมถึงไม่ให้" สำหรับกรณีไม่อนุมัติ — ใช้ฟิลด์เดียวกันได้ทั้งอนุมัติ/
  * ไม่อนุมัติ เผื่ออนาคตอยากฝากข้อความตอนอนุมัติด้วย แม้ตอนนี้ฝั่ง UI จะเก็บช่อง
- * นี้ไว้เฉพาะตอนไม่อนุมัติก็ตาม. */
+ * นี้ไว้เฉพาะตอนไม่อนุมัติก็ตาม.
+ *
+ * คืน `bookings` (แถวที่อัปเดตแล้วเต็มๆ ไม่ใช่แค่ id) กลับไปด้วย — เพิ่มทีหลัง
+ * ตามที่ขอให้คนขับเห็น/ได้รับแจ้งเตือนงานเฉพาะ "หลัง ผอ. อนุมัติแล้วเท่านั้น"
+ * (ไม่ใช่ตั้งแต่ตอนฝ่ายบริหารจัดรถเหมือนก่อนหน้านี้) route handler
+ * (api/director/trips/decision/route.ts) ต้องรู้ tripOrderId ของแต่ละคำขอที่
+ * อนุมัติผ่าน เพื่อไปสรุปเป็นข้อความแจ้งกลุ่ม LINE คนขับทีละใบสั่งงาน (ดู
+ * notifyDriverGroup ใน lib/lineNotify.ts) — แค่ bookingId เปล่าๆ ไม่พอ. */
 export async function setDirectorDecision(
   bookingIds: string[],
   decision: "approved" | "rejected",
   comment: string = ""
-): Promise<{ updatedBookingIds: string[] }> {
-  if (bookingIds.length === 0) return { updatedBookingIds: [] };
+): Promise<{ updatedBookingIds: string[]; bookings: Booking[] }> {
+  if (bookingIds.length === 0) return { updatedBookingIds: [], bookings: [] };
 
   const spreadsheetId = getEnv("GOOGLE_SHEET_ID");
   const bookingsTab = getBookingsTab();
@@ -3251,23 +3285,23 @@ export async function setDirectorDecision(
     if (booking.directorApprovalStatus !== "pending") continue;
     targets.push({ rowIndex: idx, booking });
   }
-  if (targets.length === 0) return { updatedBookingIds: [] };
+  if (targets.length === 0) return { updatedBookingIds: [], bookings: [] };
+
+  const updatedBookings: Booking[] = targets.map(({ booking }) => ({
+    ...booking,
+    directorApprovalStatus: decision,
+    directorApprovedAt: decidedAt,
+    directorNote: comment,
+  }));
 
   try {
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
       requestBody: {
         valueInputOption: "RAW",
-        data: targets.map(({ rowIndex, booking }) => ({
+        data: targets.map(({ rowIndex }, i) => ({
           range: `${bookingsTab}!A${rowIndex + 2}:AA${rowIndex + 2}`,
-          values: [
-            bookingToRow({
-              ...booking,
-              directorApprovalStatus: decision,
-              directorApprovedAt: decidedAt,
-              directorNote: comment,
-            }),
-          ],
+          values: [bookingToRow(updatedBookings[i])],
         })),
       },
     });
@@ -3276,7 +3310,7 @@ export async function setDirectorDecision(
     throw new Error(`บันทึกการอนุมัติของ ผอ. ไม่สำเร็จ: ${message}`);
   }
 
-  return { updatedBookingIds: targets.map((t) => t.booking.bookingId) };
+  return { updatedBookingIds: updatedBookings.map((b) => b.bookingId), bookings: updatedBookings };
 }
 
 /** ผอ. กด "ตีกลับ" ใบสั่งงานทั้งใบ (ไม่ใช่รายคำขอ) ให้ฝ่ายบริหารผู้จัดรถ

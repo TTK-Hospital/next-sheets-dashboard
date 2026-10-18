@@ -133,7 +133,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const splitPayload = readSplitPayload(body);
   if (splitPayload) {
     try {
-      const { tripOrder: updated, booking: splitBooking } = await splitBookingFromTripOrder(
+      const { tripOrder: updated, booking: splitBooking, hasApprovedSibling } = await splitBookingFromTripOrder(
         tripOrderId,
         splitPayload.removeBookingId,
         session.username
@@ -152,17 +152,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       });
 
       // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort (ดูคอมเมนต์หัวไฟล์
-      // lib/lineNotify.ts)
-      void notifyDriverGroup(
-        `⚠️ มีรายการถูกแยกออกจากเที่ยว\n` +
-          `รถ: ${updated.resourceName}\n` +
-          `คนขับ: ${updated.driverName || "—"}\n` +
-          `${splitBooking.department || splitBooking.bookedByDisplayName || splitBooking.bookedByUsername} ` +
-          `(${formatBookingDateTime(splitBooking.startTime)} – ${formatBookingDateTime(
-            splitBooking.endTime
-          )}) ถูกแยกออก — เหลือ ${updated.bookingIds.length.toLocaleString("th-TH")} คำขอในเที่ยวนี้\n` +
-          `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
-      );
+      // lib/lineNotify.ts) เฉพาะตอนที่เที่ยวนี้ยังมีคำขออื่นที่ ผอ. อนุมัติไป
+      // แล้วเหลืออยู่เท่านั้น (hasApprovedSibling — ดูคอมเมนต์เต็มที่
+      // splitBookingFromTripOrder ใน lib/sheets.ts) เพราะนั่นแปลว่าคนขับ
+      // "รู้จัก" เที่ยวนี้อยู่แล้ว (ผ่าน ผอ. อนุมัติมาก่อน) การแยกคำขอที่ยังไม่
+      // อนุมัติออกไปจึงลดจำนวนคนในเที่ยวที่คนขับกำลังจะไปอยู่แล้ว ควรรู้ — ถ้า
+      // ไม่มีเลย แปลว่าคนขับยังไม่เคยรู้จักเที่ยวนี้เลย (ยังไม่ผ่าน ผอ. อนุมัติสัก
+      // คำขอ) ไม่ต้องแจ้งอะไร
+      if (hasApprovedSibling) {
+        void notifyDriverGroup(
+          `⚠️ มีรายการถูกแยกออกจากเที่ยว\n` +
+            `รถ: ${updated.resourceName}\n` +
+            `คนขับ: ${updated.driverName || "—"}\n` +
+            `${splitBooking.department || splitBooking.bookedByDisplayName || splitBooking.bookedByUsername} ` +
+            `(${formatBookingDateTime(splitBooking.startTime)} – ${formatBookingDateTime(
+              splitBooking.endTime
+            )}) ถูกแยกออก — เหลือ ${updated.bookingIds.length.toLocaleString("th-TH")} คำขอในเที่ยวนี้\n` +
+            `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
+        );
+      }
 
       return NextResponse.json({ tripOrder: updated, booking: splitBooking });
     } catch (err: unknown) {
@@ -208,20 +216,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }) ${requestAuditTag(request)}`,
     });
 
-    // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort (ดูคอมเมนต์หัวไฟล์
-    // lib/lineNotify.ts) แจ้งทุกครั้งที่แก้ไขสำเร็จ (รถ/คนขับ/เวลา/หมายเหตุ/
-    // เพิ่มคำขอ) ไม่แยกกรองว่าแก้ฟิลด์ไหนบ้าง ตามขอบเขตที่ตกลงกันไว้ — "ทุก
-    // เหตุการณ์ที่กระทบงานของคนขับ" ดู docs/line-driver-notify-plan.md
-    void notifyDriverGroup(
-      `✏️ แก้ไขงาน\n` +
-        `รถ: ${updated.resourceName}\n` +
-        `คนขับ: ${updated.driverName || "—"}\n` +
-        `เวลาออกเดินทาง: ${formatBookingDateTime(updated.startTime)}\n` +
-        (addedBookings.length > 0
-          ? `เพิ่มคำขอใหม่เข้ามา ${addedBookings.length.toLocaleString("th-TH")} รายการ\n`
-          : "") +
-        `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
-    );
+    // *ไม่* แจ้งกลุ่ม LINE คนขับที่จุดนี้เลย (ต่างจากก่อนหน้านี้) — updateTripOrder
+    // ถูกล็อกเขียนไม่ได้ทันทีที่มีคำขอใดในใบสั่งงานนี้ถูก ผอ. อนุมัติไปแล้ว (ดู
+    // คอมเมนต์ที่ updateTripOrder ใน lib/sheets.ts) แปลว่า edit path นี้ทำงานได้
+    // เฉพาะตอนที่ทั้งใบสั่งงานยังไม่ผ่าน ผอ. อนุมัติเลยแม้แต่คำขอเดียว — คนขับ
+    // จึงยังไม่ควรรู้จักเที่ยวนี้อยู่ดี ไม่ว่าจะแก้รถ/คนขับ/เวลา/หมายเหตุ หรือเพิ่ม
+    // คำขอใหม่เข้ามาก็ตาม (ดูคอมเมนต์ที่ getDriverTrips ใน lib/sheets.ts และที่
+    // จุดแจ้งกลุ่มคนขับจริงใน POST /api/director/trips/decision/route.ts)
 
     // แจ้ง ผอ. เฉพาะตอนมีคำขอใหม่ถูกเพิ่มเข้าใบสั่งงานนี้เท่านั้น (addedBookings)
     // — เพราะเฉพาะคำขอที่เพิ่มใหม่เท่านั้นที่กลายเป็น "รอ ผอ. อนุมัติ" รอบใหม่

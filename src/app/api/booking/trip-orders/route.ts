@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { canApproveCarBooking, formatBookingDateTime } from "@/lib/booking";
 import { appendEditLog, createTripOrder, getBookingResources, getTripOrders } from "@/lib/sheets";
-import { directorApprovalUrl, driverCalendarUrl, notifyDirector, notifyDriverGroup } from "@/lib/lineNotify";
+import { directorApprovalUrl, notifyDirector } from "@/lib/lineNotify";
 
 // Always live — see the identical comment on ../bookings/route.ts: a
 // dispatch changes what's still "pending" for every viewer, so this must
@@ -138,24 +138,19 @@ export async function POST(request: NextRequest) {
       )}`,
     });
 
-    // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort ล้วนๆ (ดูคอมเมนต์หัวไฟล์
-    // lib/lineNotify.ts) ไม่ await ผลลัพธ์เพื่อตัดสินใจอย่างอื่นต่อ และไม่
-    // เคย throw ออกมาเองอยู่แล้ว จึงไม่ต้องครอบ try/catch เพิ่มตรงนี้
-    const totalParticipants = bookings.reduce((sum, b) => sum + b.participants, 0);
-    void notifyDriverGroup(
-      `🚐 มีงานใหม่\n` +
-        `รถ: ${tripOrder.resourceName}\n` +
-        `คนขับ: ${tripOrder.driverName || "—"}\n` +
-        `ออกเดินทาง: ${formatBookingDateTime(tripOrder.startTime)}\n` +
-        `ผู้โดยสารรวม: ${totalParticipants.toLocaleString("th-TH")} คน\n` +
-        `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
-    );
-
-    // แจ้งเตือน ผอ. ว่ามีรายการจัดรถใหม่เข้ามารออนุมัติ — best-effort เหมือนกัน
-    // (ดูคอมเมนต์หัวไฟล์ lib/lineNotify.ts) ตามที่ขอ "อยากให้มีการแจ้งเตือนทาง
-    // line ให้กับผอ.ได้รับทราบว่ามีการขอรถเข้ามาด้วยครับ" — จ่ายรถเสร็จแล้ว
-    // ทุกคำขอใน bookings กลายเป็น "รอ ผอ. อนุมัติ" ทันที (ดู createTripOrder ใน
+    // แจ้งเตือน ผอ. ว่ามีรายการจัดรถใหม่เข้ามารออนุมัติ — best-effort (ดูคอมเมนต์
+    // หัวไฟล์ lib/lineNotify.ts) ตามที่ขอ "อยากให้มีการแจ้งเตือนทาง line ให้กับ
+    // ผอ.ได้รับทราบว่ามีการขอรถเข้ามาด้วยครับ" — จ่ายรถเสร็จแล้วทุกคำขอใน
+    // bookings กลายเป็น "รอ ผอ. อนุมัติ" ทันที (ดู createTripOrder ใน
     // lib/sheets.ts) จึงแจ้งทุกครั้งที่ endpoint นี้สำเร็จ ไม่ต้องกรองเพิ่ม
+    //
+    // ตั้งใจ *ไม่* แจ้งกลุ่ม LINE คนขับที่จุดนี้ (ต่างจากก่อนหน้านี้) — ตาม
+    // ลำดับขั้นตอนจริงที่โรงพยาบาลยืนยัน (ผู้จอง → ผู้จัด/ฝ่ายบริหารจัดรถแต่ไม่มี
+    // อำนาจตัดสินใจ → ผอ. ตัดสินใจ → คนขับรับงานจากรายการที่ผอ.อนุมัติแล้ว
+    // เท่านั้น) คนขับยังไม่ควรรู้จักเที่ยวนี้ตอนนี้เลย เพราะ ผอ. ยังไม่ได้อนุมัติ —
+    // ดูการแจ้งกลุ่มคนขับที่ย้ายไปอยู่ POST /api/director/trips/decision/route.ts
+    // แทน (จุดเดียวที่ ผอ. กดอนุมัติจริง) และดูคอมเมนต์ที่ getDriverTrips ใน
+    // lib/sheets.ts สำหรับที่มาเต็มๆ
     void notifyDirector(
       `🔔 มีรายการจัดรถรออนุมัติ\n` +
         `รถ: ${tripOrder.resourceName}\n` +

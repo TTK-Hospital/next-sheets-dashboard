@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
 import { appendEditLog, returnTripToDispatch } from "@/lib/sheets";
-import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
 
 export const dynamic = "force-dynamic";
 
@@ -50,20 +49,12 @@ export async function POST(request: NextRequest) {
     const { tripOrder, bookings } = await returnTripToDispatch(tripOrderId, comment, "ผอ.");
     after(() => logReturn(tripOrder.tripOrderId, tripOrder.resourceName, tripOrder.driverName, comment));
 
-    // แจ้งเตือนกลุ่ม LINE คนขับ — best-effort (ดูคอมเมนต์หัวไฟล์
-    // lib/lineNotify.ts) — ใช้ resourceName/driverName จาก tripOrder ที่คืนมา
-    // (returnTripToDispatch เก็บค่าเดิมไว้ แค่ล้าง bookingIds — ดูคอมเมนต์ที่
-    // ฟังก์ชันนั้นใน lib/sheets.ts) เพราะ bookings ที่คืนมาถูกเซ็ต resourceName
-    // กลับเป็น placeholder ไปแล้ว ไม่ใช่รถ/คนขับที่ถูกตีกลับจริง
-    void notifyDriverGroup(
-      `↩️ ผอ. ตีกลับใบสั่งงานเดินทาง\n` +
-        `รถ: ${tripOrder.resourceName}\n` +
-        `คนขับ: ${tripOrder.driverName || "—"}\n` +
-        `${bookings.length.toLocaleString("th-TH")} คำขอถูกยกเลิกการจัดรถ — กลับไปรอจัดรถใหม่\n` +
-        (comment ? `ข้อความจาก ผอ.: ${comment}\n` : "") +
-        `ดูรายละเอียด: ${driverCalendarUrl(request.nextUrl.origin)}`
-    );
-
+    // *ไม่* แจ้งกลุ่ม LINE คนขับที่จุดนี้ — returnTripToDispatch ปฏิเสธ (throw)
+    // ทันทีถ้ามีคำขอใดในใบสั่งงานนี้ถูก ผอ. อนุมัติไปแล้ว (ดูคอมเมนต์ที่
+    // returnTripToDispatch ใน lib/sheets.ts) แปลว่า "ตีกลับ" ทำได้เฉพาะใบ
+    // สั่งงานที่ยังไม่ผ่าน ผอ. อนุมัติเลยแม้แต่คำขอเดียวเท่านั้น — คนขับจึงไม่
+    // เคยรู้จักเที่ยวนี้มาก่อน ไม่มีอะไรต้องแจ้ง (ดูคอมเมนต์ที่ getDriverTrips ใน
+    // lib/sheets.ts และจุดแจ้งกลุ่มคนขับจริงใน .../trips/decision/route.ts)
     const response = NextResponse.json({ ok: true, tripOrder, bookings });
     setDirectorSessionCookie(response);
     return response;
