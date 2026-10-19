@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { SESSION_COOKIE, clearActiveSession, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
 
 export const dynamic = "force-dynamic";
 

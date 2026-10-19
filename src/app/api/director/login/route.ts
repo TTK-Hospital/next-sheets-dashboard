@@ -6,7 +6,8 @@ import {
   clearDirectorAttempts,
   setDirectorSessionCookie,
 } from "@/lib/directorAuth";
-import { appendEditLog, getDirectorPasswordHash } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { getDirectorPasswordHash } from "@/lib/db/directorSettingsDb";
 
 // Never cache/prerender — checks live rate-limit + password state.
 export const dynamic = "force-dynamic";

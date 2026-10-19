@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEquipmentData } from "@/lib/sheets";
+import { getEquipmentData } from "@/lib/db/equipmentDb";
 
 // Always fetch fresh data from the sheet — never cache/prerender this route.
 export const dynamic = "force-dynamic";

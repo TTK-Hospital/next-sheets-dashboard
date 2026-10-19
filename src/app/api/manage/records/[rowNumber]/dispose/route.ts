@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog, getEquipmentDataUnredacted, setEquipmentStatus } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { getEquipmentDataUnredacted, setEquipmentStatus } from "@/lib/db/equipmentDb";
 import { STATUS_DISPOSED, isDeleted } from "@/lib/fields";
 import { hasPermission } from "@/lib/permissions";
 

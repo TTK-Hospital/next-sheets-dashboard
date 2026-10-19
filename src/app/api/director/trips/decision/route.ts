@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
-import { appendEditLog, getTripOrders, setDirectorDecision } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { getTripOrders, setDirectorDecision } from "@/lib/db/tripOrdersDb";
 import { formatBookingDateTime, type Booking } from "@/lib/booking";
 import { driverCalendarUrl, notifyDriverGroup } from "@/lib/lineNotify";
 

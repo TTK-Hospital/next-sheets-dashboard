@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canManageDrivers, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog, createDriver, getDrivers } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { createDriver, getDrivers } from "@/lib/db/driversDb";
 
 // Always live — same reasoning as /api/booking/resources: the list is small
 // and can change at any time, so caching isn't worth the staleness.

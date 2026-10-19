@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessItDashboard, verifySessionToken } from "@/lib/auth";
-import { deleteMaintenanceTask, updateMaintenanceTask, type InspectionCheck, type MaintenanceTask } from "@/lib/sheets";
+import { deleteMaintenanceTask, updateMaintenanceTask, type InspectionCheck, type MaintenanceTask } from "@/lib/db/maintenanceTasksDb";
 
 export const dynamic = "force-dynamic";
 
