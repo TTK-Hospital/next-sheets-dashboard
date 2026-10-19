@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessItDashboard, verifySessionToken } from "@/lib/auth";
-import { getReportSettings, updateReportSettings, type ReportSettings } from "@/lib/db/reportSettingsDb";
+import { getReportSettings, updateReportSettings, type ReportSettings } from "@/lib/sheets";
 import { hasPermission } from "@/lib/permissions";
 
 /** True iff the two lists are identical, entry for entry. The client

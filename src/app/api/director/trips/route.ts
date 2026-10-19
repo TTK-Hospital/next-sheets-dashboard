@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
-import { getDirectorPendingTrips } from "@/lib/db/tripOrdersDb";
+import { getDirectorPendingTrips } from "@/lib/sheets";
 
 // ข้อมูลเปลี่ยนได้ตลอด (มีรายการใหม่ทุกครั้งที่ผู้ดูแลระบบจัดรถ) — ห้าม cache
 // หน้านี้ เหมือน /api/public/driver-trips และ /api/booking/* ทั้งหมด

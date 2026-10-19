@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, hashPassword, requestAuditTag, verifySessionToken, type Role } from "@/lib/auth";
-import { addUser, getUsers, updateUser } from "@/lib/db/usersDb";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import type { UserRecord } from "@/lib/sheets";
+import { addUser, appendEditLog, getUsers, updateUser, type UserRecord } from "@/lib/sheets";
 import {
   PERMISSION_LABELS,
   hasPermission,

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canManageBookingResources, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import { createBookingResource, getBookingResources } from "@/lib/db/bookingResourcesDb";
+import { appendEditLog, createBookingResource, getBookingResources } from "@/lib/sheets";
 import { isValidResourceImageDataUrl, type BookingResourceType } from "@/lib/booking";
 
 // Always live — resources can be added by any logged-in account at any

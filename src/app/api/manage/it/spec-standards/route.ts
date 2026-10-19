@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessItDashboard, verifySessionToken } from "@/lib/auth";
-import { getSpecStandards, updateSpecStandards } from "@/lib/db/specStandardsDb";
-import type { SpecStandards } from "@/lib/specEvaluation";
+import { getSpecStandards, updateSpecStandards, type SpecStandards } from "@/lib/sheets";
 
 // Always live — a low-traffic settings screen, not a hot path.
 export const dynamic = "force-dynamic";

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessEquipmentRegistry, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import { appendEquipmentRow, getEquipmentDataUnredacted } from "@/lib/db/equipmentDb";
+import { appendEditLog, appendEquipmentRow, getEquipmentDataUnredacted } from "@/lib/sheets";
 import { STATUS_ACTIVE, findDuplicateAssetNumberRow, isDeleted } from "@/lib/fields";
 import { hasPermission } from "@/lib/permissions";
 import { rowSnapshotHash } from "@/lib/recordHash";

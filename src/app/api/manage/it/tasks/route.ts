@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessItDashboard, verifySessionToken } from "@/lib/auth";
-import { createMaintenanceTasks, getMaintenanceTasks } from "@/lib/db/maintenanceTasksDb";
-import { getUsers } from "@/lib/db/usersDb";
+import { createMaintenanceTasks, getMaintenanceTasks, getUsers } from "@/lib/sheets";
 
 // Always live — task status changes constantly while IT is out doing
 // rounds, and this list is small, so caching isn't worth the staleness.

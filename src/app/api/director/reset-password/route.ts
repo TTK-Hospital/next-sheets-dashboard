@@ -6,8 +6,7 @@ import {
   clearDirectorAttempts,
   clearDirectorSessionCookie,
 } from "@/lib/directorAuth";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import { getDirectorPasswordHash, setDirectorPasswordHash } from "@/lib/db/directorSettingsDb";
+import { appendEditLog, getDirectorPasswordHash, setDirectorPasswordHash } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 

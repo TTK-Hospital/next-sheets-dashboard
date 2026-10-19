@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canManageBookingResources, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import { updateBookingResource } from "@/lib/db/bookingResourcesDb";
+import { appendEditLog, updateBookingResource } from "@/lib/sheets";
 import { isValidResourceImageDataUrl } from "@/lib/booking";
 
 export const dynamic = "force-dynamic";

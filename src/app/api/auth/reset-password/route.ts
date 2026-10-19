@@ -9,8 +9,7 @@ import {
   requestAuditTag,
   verifyPassword,
 } from "@/lib/auth";
-import { appendEditLog } from "@/lib/db/editLogDb";
-import { getUsers, updateUser } from "@/lib/db/usersDb";
+import { appendEditLog, getUsers, updateUser } from "@/lib/sheets";
 
 // Never cache/prerender — checks live rate-limit + account state, then writes.
 export const dynamic = "force-dynamic";

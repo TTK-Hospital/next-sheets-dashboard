@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
-import { getDirectorAllTrips } from "@/lib/db/tripOrdersDb";
+import { getDirectorAllTrips } from "@/lib/sheets";
 
 // ข้อมูลเปลี่ยนได้ตลอด เหมือน ../route.ts (รายการรออนุมัติ) — ห้าม cache
 export const dynamic = "force-dynamic";
