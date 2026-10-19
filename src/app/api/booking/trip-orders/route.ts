@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { canApproveCarBooking, formatBookingDateTime } from "@/lib/booking";
-import { appendEditLog, createTripOrder, getBookingResources, getTripOrders } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { createTripOrder, getTripOrders } from "@/lib/db/tripOrdersDb";
+import { getBookingResources } from "@/lib/db/bookingResourcesDb";
 import { directorApprovalUrl, notifyDirector } from "@/lib/lineNotify";
 
 // Always live — see the identical comment on ../bookings/route.ts: a

@@ -13,7 +13,8 @@ import {
   type Role,
 } from "@/lib/auth";
 import type { PermissionKey } from "@/lib/permissions";
-import { appendEditLog, getUsers } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { getUsers } from "@/lib/db/usersDb";
 
 // Never cache/prerender — checks live rate-limit + credential state.
 export const dynamic = "force-dynamic";

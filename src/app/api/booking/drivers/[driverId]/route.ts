@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canManageDrivers, requestAuditTag, verifySessionToken } from "@/lib/auth";
-import { appendEditLog, updateDriver } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { updateDriver } from "@/lib/db/driversDb";
 
 export const dynamic = "force-dynamic";
 

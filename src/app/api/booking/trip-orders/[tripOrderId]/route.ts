@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { canApproveCarBooking, formatBookingDateTime } from "@/lib/booking";
-import { appendEditLog, getBookingResources, splitBookingFromTripOrder, updateTripOrder } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { getBookingResources } from "@/lib/db/bookingResourcesDb";
+import { splitBookingFromTripOrder, updateTripOrder } from "@/lib/db/tripOrdersDb";
 import { directorApprovalUrl, driverCalendarUrl, notifyDirector, notifyDriverGroup } from "@/lib/lineNotify";
 
 export const dynamic = "force-dynamic";

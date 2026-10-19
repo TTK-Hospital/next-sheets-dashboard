@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, requestAuditTag, verifySessionToken } from "@/lib/auth";
 import { PENDING_CAR_RESOURCE_NAME, type BookingResourceType } from "@/lib/booking";
-import { createBooking, getBookingResources, getBookings, getUsers, appendEditLog } from "@/lib/sheets";
+import { createBooking, getBookings } from "@/lib/db/bookingsDb";
+import { getBookingResources } from "@/lib/db/bookingResourcesDb";
+import { getUsers } from "@/lib/db/usersDb";
+import { appendEditLog } from "@/lib/db/editLogDb";
 
 // Always live — bookings and cancellations happen throughout the day and
 // the conflict check must always see the current state, so caching isn't

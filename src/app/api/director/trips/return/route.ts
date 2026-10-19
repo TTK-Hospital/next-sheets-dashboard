@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { DIRECTOR_SESSION_COOKIE, setDirectorSessionCookie, verifyDirectorSessionToken } from "@/lib/directorAuth";
-import { appendEditLog, returnTripToDispatch } from "@/lib/sheets";
+import { appendEditLog } from "@/lib/db/editLogDb";
+import { returnTripToDispatch } from "@/lib/db/tripOrdersDb";
 
 export const dynamic = "force-dynamic";
 

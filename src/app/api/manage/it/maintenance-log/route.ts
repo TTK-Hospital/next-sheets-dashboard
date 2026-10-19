@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, canAccessItDashboard, verifySessionToken } from "@/lib/auth";
-import { appendMaintenanceLogEntry, getMaintenanceLog, type MaintenanceLogEntry } from "@/lib/sheets";
+import { appendMaintenanceLogEntry, getMaintenanceLog } from "@/lib/db/maintenanceLogDb";
+import type { MaintenanceLogEntry } from "@/lib/maintenanceLog";
 
 // Always live — this is a small append-only log, not worth caching.
 export const dynamic = "force-dynamic";
