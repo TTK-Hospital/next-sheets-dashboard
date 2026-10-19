@@ -396,3 +396,17 @@ INSERT INTO spec_standards (
 
 INSERT INTO director_settings (id, password_hash) VALUES (true, '')
 ON CONFLICT (id) DO NOTHING;
+
+
+-- -----------------------------------------------------------------------------
+-- เปิดสิทธิ์ให้ service_role (ที่แอป server ใช้เชื่อมต่อ) เข้าถึงทุกตารางได้ครบ
+-- จำเป็นเพราะตอนสร้างโปรเจกต์ เราปิด "Automatically expose new tables" ไว้
+-- โดยตั้งใจ (เพื่อความปลอดภัย ไม่ให้ตารางใหม่เปิดสิทธิ์อัตโนมัติ) — ไม่เปิดให้
+-- role สาธารณะ (anon/authenticated) เข้าถึง เพราะแอปนี้ไม่เคยเรียก Supabase
+-- จากฝั่ง browser เลย เชื่อมต่อผ่านเซิร์ฟเวอร์ Next.js เท่านั้น
+-- -----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO service_role;
