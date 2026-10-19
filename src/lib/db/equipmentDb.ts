@@ -162,8 +162,78 @@ export async function getEquipmentDataUnredacted(): Promise<SheetSnapshot> {
  * from a full raw_responses-shaped `values` map, using the same FieldMap
  * resolution the read path uses — kept in one place so every write path
  * below (updateEquipmentRow/appendEquipmentRow/setEquipmentStatus) stays
- * consistent with what getEquipmentData actually reads back. */
-function deriveNamedColumns(headers: string[], values: Record<string, string>) {
+ * consistent with what getEquipmentData actually reads back. Exported so
+ * scripts/migrate-to-supabase.ts can reuse this exact mapping instead of
+ * duplicating it. */
+// The ประทับเวลา (timestamp) header's raw value is always
+// "D/M/YYYY, H:mm:ss" wall-clock time in Asia/Bangkok, with NO leading
+// zeros and NO timezone suffix — both Google Form's own auto-generated
+// value for every historical row (confirmed against the real sheet: e.g.
+// "27/7/2026, 11:20:58", which only parses as D/M, since 27 can't be a
+// month) and formatSheetTimestamp() in
+// src/app/api/manage/records/route.ts, used whenever this app's own
+// /manage UI appends a brand-new row going forward, produce exactly this
+// shape. submitted_at is `timestamptz`, so this must be converted to a
+// real instant before it's written — Postgres's own date parser can't be
+// trusted to guess D/M vs M/D correctly (and errors outright once day >
+// 12, which is exactly what surfaced this during the Supabase migration
+// script's first run). Thailand has no DST, so a fixed UTC+7 offset is
+// always correct, matching the "Asia/Bangkok, no DST-arithmetic bugs"
+// convention formatSheetTimestamp itself documents.
+const SHEET_TIMESTAMP_PATTERN = /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2}):(\d{2})$/;
+
+// A second shape also shows up on some rows (confirmed against the real
+// sheet, rows added after some point started looking like this instead):
+// "31 ส.ค. 2569 13:32" — day, Thai-abbreviated month, Buddhist-Era year
+// (CE + 543), hour:minute, no seconds. Google Sheets renders a date/time
+// cell this way under a Thai display-locale setting — this is a display
+// format, not a different underlying value, so it needs the same
+// Asia/Bangkok-wall-clock treatment as the D/M/YYYY shape above, just with
+// the year and month parsed differently.
+const THAI_MONTH_ABBR: Record<string, number> = {
+  "ม.ค.": 1, "ก.พ.": 2, "มี.ค.": 3, "เม.ย.": 4, "พ.ค.": 5, "มิ.ย.": 6,
+  "ก.ค.": 7, "ส.ค.": 8, "ก.ย.": 9, "ต.ค.": 10, "พ.ย.": 11, "ธ.ค.": 12,
+};
+const THAI_BUDDHIST_TIMESTAMP_PATTERN =
+  /^(\d{1,2})\s+(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)\s+(\d{4})\s+(\d{1,2}):(\d{2})$/;
+
+export function parseSheetTimestampToIso(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const slashMatch = SHEET_TIMESTAMP_PATTERN.exec(trimmed);
+  if (slashMatch) {
+    const [, day, month, year, hour, minute, second] = slashMatch;
+    const utcMs = Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour) - 7, // Asia/Bangkok -> UTC, fixed offset (no DST)
+      Number(minute),
+      Number(second)
+    );
+    if (!Number.isNaN(utcMs)) return new Date(utcMs).toISOString();
+  }
+
+  const thaiMatch = THAI_BUDDHIST_TIMESTAMP_PATTERN.exec(trimmed);
+  if (thaiMatch) {
+    const [, day, monthAbbr, buddhistYear, hour, minute] = thaiMatch;
+    const month = THAI_MONTH_ABBR[monthAbbr];
+    const ceYear = Number(buddhistYear) - 543;
+    const utcMs = Date.UTC(ceYear, month - 1, Number(day), Number(hour) - 7, Number(minute), 0);
+    if (!Number.isNaN(utcMs)) return new Date(utcMs).toISOString();
+  }
+
+  // Tolerant fallback for any row that's somehow already a standard
+  // parseable date/time string (e.g. re-exported data) rather than either
+  // Google Sheets shape above.
+  const fallback = new Date(trimmed);
+  if (!Number.isNaN(fallback.getTime())) return fallback.toISOString();
+
+  return null;
+}
+
+export function deriveNamedColumns(headers: string[], values: Record<string, string>) {
   const fields = resolveFields(headers);
   const get = (h: string | null) => (h ? (values[h] ?? "").toString().trim() : "");
   const brand = fields.brand.map((h) => values[h] ?? "").find((v) => v.trim()) ?? "";
@@ -173,7 +243,7 @@ function deriveNamedColumns(headers: string[], values: Record<string, string>) {
     : [get(fields.titlePrefixHeader), get(fields.nameHeader)].filter(Boolean).join("");
 
   return {
-    submitted_at: get(fields.timestamp) || null,
+    submitted_at: parseSheetTimestampToIso(get(fields.timestamp)),
     department: get(fields.department) || null,
     equipment_type: get(fields.equipmentType) || null,
     asset_number: get(fields.assetNumber) || null,
